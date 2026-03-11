@@ -52,6 +52,12 @@ def ui_tab():
             if not directory:
                 yield "Error", "Please enter a directory path."
                 return
+                
+            # Persist it to a1111 options file for next boot
+            if hasattr(shared.opts, "lora_meta_matcher_scan_dir"):
+                shared.opts.lora_meta_matcher_scan_dir = directory
+                shared.opts.save(shared.config_filename)
+                
             for summary, msg in scan_directory(directory):
                 log = msg + "\n" + log
                 yield summary, log
