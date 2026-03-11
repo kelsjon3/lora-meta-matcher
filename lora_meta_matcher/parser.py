@@ -12,6 +12,7 @@ def parse_a1111_metadata(info):
     positive_prompt = ""
     loras = []
     
+    # Split primary prompt from negative prompt and settings
     lines = params.split("\n")
     for i, line in enumerate(lines):
         if line.startswith("Negative prompt:") or line.startswith("Steps:"):
@@ -21,13 +22,31 @@ def parse_a1111_metadata(info):
     if not positive_prompt:
         positive_prompt = params.strip()
         
+    # 1. Standard A1111 prompt Lora tags <lora:name:weight>
     lora_matches = re.findall(r'<lora:([^:]+):([^>]+)>', positive_prompt)
     for name, weight in lora_matches:
         loras.append({"name": name, "weight": weight})
         
+    # 2. Civitai Resources JSON extraction
+    civitai_match = re.search(r'Civitai resources:\s*(\[.*\])', params, flags=re.DOTALL)
+    if civitai_match:
+        try:
+            resources = json.loads(civitai_match.group(1))
+            for res in resources:
+                if isinstance(res, dict) and res.get("type") == "lora":
+                    name = res.get("modelName") or res.get("modelVersionName")
+                    weight = res.get("weight", "1.0")
+                    if name:
+                        # Ensure we don't duplicate Loras already found in prompt
+                        if not any(l["name"] == name for l in loras):
+                            loras.append({"name": name, "weight": str(weight)})
+        except Exception:
+            pass
+        
     return {
-        "raw_prompt": positive_prompt,
-        "loras": loras
+        "raw_prompt": params, # return the entire raw string
+        "loras": loras,
+        "positive_prompt": positive_prompt
     }
 
 def parse_comfyui_metadata(info):
@@ -91,8 +110,9 @@ def parse_comfyui_metadata(info):
         positive_prompt = " | ".join([t for t in texts if len(t) > 5])
 
     return {
-        "raw_prompt": positive_prompt,
-        "loras": loras
+        "raw_prompt": prompt_str, # return the entire raw json string
+        "loras": loras,
+        "positive_prompt": positive_prompt
     }
 
 def decode_user_comment(user_comment):
@@ -147,13 +167,24 @@ def extract_image_metadata(img):
     if not info:
         return None
         
+    # Attempt parsing as A1111 format
     data = parse_a1111_metadata(info)
-    if data and (data["raw_prompt"] or data["loras"]):
+    if data:
         return data
         
+    # Attempt parsing as ComfyUI format
     data = parse_comfyui_metadata(info)
-    if data and (data["raw_prompt"] or data["loras"]):
+    if data:
         return data
+        
+    # If no explicit parser worked but we still found a raw string (e.g. prompt, parameters, workflow, or exif)
+    raw_str = info.get('parameters') or info.get('prompt') or info.get('workflow')
+    if raw_str:
+        return {
+            "raw_prompt": raw_str,
+            "loras": [],
+            "positive_prompt": raw_str
+        }
         
     return None
 
@@ -191,12 +222,14 @@ def match_loras_to_db(loras):
                 
     return matched
 
-def reconstruct_prompt(raw_prompt, matched_loras):
+def reconstruct_prompt(parsed_data, matched_loras):
     """
     Takes the pure positive prompt and appends the fully qualified lora tags
     and their associated trigger words.
     """
-    clean_prompt = re.sub(r'<lora:[^>]+>', '', raw_prompt).strip()
+    positive_prompt = parsed_data.get("positive_prompt", "")
+    
+    clean_prompt = re.sub(r'<lora:[^>]+>', '', positive_prompt).strip()
     
     additions = []
     

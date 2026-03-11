@@ -94,7 +94,7 @@ def ui_tab():
                 else:
                     matched_loras_str += f"[NOT FOUND] {m['original_name']} (Weight: {m['weight']})\\n"
                     
-            new_prompt = reconstruct_prompt(raw_prompt, matched)
+            new_prompt = reconstruct_prompt(data, matched)
             
             return raw_prompt, raw_loras_str.strip(), new_prompt, matched_loras_str.strip()
 
