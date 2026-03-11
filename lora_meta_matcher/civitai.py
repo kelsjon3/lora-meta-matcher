@@ -77,10 +77,7 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
         autov2_hash = lora["autov2_hash"]
         filename = os.path.basename(filepath)
         
-        msg_log = f"({count+1}/{total_files}) Fetching data for '{filename}'..."
         msg_sum = f"Processed {count+1} / {total_files} API requests ({int(((count+1)/total_files)*100)}%)"
-        
-        yield msg_sum, msg_log
         
         data, status_code = fetch_civitai_info(autov2_hash, token)
         
@@ -120,7 +117,7 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
                 metadata_fetch_attempted=1,
                 civitai_version_id=civitai_version_id
             )
-            yield msg_sum, f"Successfully updated metadata for '{filename}'."
+            yield msg_sum, f"[{status_code}] OK - '{filename}'"
         elif status_code == 404:
             # Model missing from CivitAI; mark attempted to prevent infinite refetch polling
             upsert_lora(
@@ -128,9 +125,9 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
                 filepath=filepath,
                 metadata_fetch_attempted=1
             )
-            yield msg_sum, f"No data found on CivitAI for hash {autov2_hash[:10]}..."
+            yield msg_sum, f"[404] Not Found - '{filename}' (Hash {autov2_hash[:10]})"
         else:
-            yield msg_sum, f"Failed to fetch metadata (API Error {status_code}) for '{filename}'."
+            yield msg_sum, f"[{status_code}] Error - '{filename}'"
             
         time.sleep(delay) # Rate limiting
             
