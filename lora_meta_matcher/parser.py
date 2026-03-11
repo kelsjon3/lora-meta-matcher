@@ -224,13 +224,9 @@ def match_loras_to_db(loras):
 
 def reconstruct_prompt(parsed_data, matched_loras):
     """
-    Takes the pure positive prompt and appends the fully qualified lora tags
+    Returns only the fully qualified lora tags (using filenames)
     and their associated trigger words.
     """
-    positive_prompt = parsed_data.get("positive_prompt", "")
-    
-    clean_prompt = re.sub(r'<lora:[^>]+>', '', positive_prompt).strip()
-    
     additions = []
     
     for lora in matched_loras:
@@ -242,9 +238,9 @@ def reconstruct_prompt(parsed_data, matched_loras):
             if lora["trigger_words"]:
                 additions.append(lora["trigger_words"])
         else:
-            tag = f"<lora:{lora['original_name']}:{lora['weight']}>"
+            # Fallback to original name if not found in DB
+            clean_name = lora["original_name"].replace(" ", "")
+            tag = f"<lora:{clean_name}:{lora['weight']}>"
             additions.append(tag)
             
-    if additions:
-        return clean_prompt + ", " + ", ".join(additions)
-    return clean_prompt
+    return ", ".join(additions)
