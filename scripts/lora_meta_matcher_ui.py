@@ -48,24 +48,24 @@ def ui_tab():
                 yield "Error", "Please enter a directory path."
                 return
             for summary, msg in scan_directory(directory):
-                log = msg + "\\n" + log
+                log = msg + "\n" + log
                 yield summary, log
                 
         def run_hashing():
             st.halt_hashing = False
             log = ""
             for summary, msg in process_missing_hashes(halt_check=lambda: st.halt_hashing):
-                log = msg + "\\n" + log
+                log = msg + "\n" + log
                 yield summary, log
                 
         def run_api_fetch():
             log = ""
             token = getattr(shared.opts, "civitai_api_token", "")
             if not token:
-                log = "Warning: No CivitAI API token found in Settings. Trying without token...\\n"
+                log = "Warning: No CivitAI API token found in Settings. Trying without token...\n"
                 
             for summary, msg in process_missing_civitai_metadata(token=token):
-                log = msg + "\\n" + log
+                log = msg + "\n" + log
                 yield summary, log
                 
         def analyze_image(img):
@@ -82,7 +82,7 @@ def ui_tab():
             if not raw_prompt and not loras:
                  return "No prompt or lora data found.", "", "", ""
             
-            raw_loras_str = "\\n".join([f"{l['name']} (Weight: {l['weight']})" for l in loras])
+            raw_loras_str = "\n".join([f"{l['name']} (Weight: {l['weight']})" for l in loras])
             
             matched = match_loras_to_db(loras)
             
@@ -90,9 +90,9 @@ def ui_tab():
             for m in matched:
                 if m["filename"]:
                     trigger = m["trigger_words"] if m["trigger_words"] else "None"
-                    matched_loras_str += f"[DB MATCH] {m['filename']} (Weight: {m['weight']}) - Triggers: {trigger}\\n"
+                    matched_loras_str += f"[DB MATCH] {m['filename']} (Weight: {m['weight']}) - Triggers: {trigger}\n"
                 else:
-                    matched_loras_str += f"[NOT FOUND] {m['original_name']} (Weight: {m['weight']})\\n"
+                    matched_loras_str += f"[NOT FOUND] {m['original_name']} (Weight: {m['weight']})\n"
                     
             new_prompt = reconstruct_prompt(data, matched)
             
