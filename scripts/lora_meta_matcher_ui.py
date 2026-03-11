@@ -103,7 +103,6 @@ def ui_tab():
                 with gr.Row():
                     with gr.Column(scale=1):
                         gr.Markdown("### Image Analysis & Lora Matcher")
-                        analyze_btn = gr.Button("Analyze Image", variant="primary")
                         
                         with gr.Accordion("Extraction Results", open=True):
                             raw_prompt = gr.Textbox(label="Extracted Raw Prompt", lines=3, interactive=False)
@@ -117,7 +116,7 @@ def ui_tab():
                         # Use a fixed height for the image to avoid scrolling
                         image_upload = gr.Image(type="pil", label="Upload Image", elem_id="lora_meta_image_upload", height=600)
 
-                analyze_btn.click(fn=analyze_image, inputs=[image_upload], outputs=[raw_prompt, raw_loras, matched_prompt, matched_loras])
+                image_upload.change(fn=analyze_image, inputs=[image_upload], outputs=[raw_prompt, raw_loras, matched_prompt, matched_loras])
 
             with gr.TabItem("Lora Database Manager"):
                 with gr.Column():
