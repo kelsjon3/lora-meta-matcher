@@ -67,6 +67,13 @@ def process_missing_hashes(halt_check=None):
             
         if autov2_hash:
             upsert_lora(filename=filename, filepath=filepath, autov2_hash=autov2_hash)
+            success_msg = f"[OK] Generated Hash: {autov2_hash[:10]} - '{filename}'"
+            print(f"[Lora Meta Matcher] {success_msg}")
+            yield msg_sum, success_msg
+        else:
+            err_msg = f"[ERROR] Failed to hash '{filename}'"
+            print(f"[Lora Meta Matcher] {err_msg}")
+            yield msg_sum, err_msg
             
     if halt_check and halt_check():
         return
