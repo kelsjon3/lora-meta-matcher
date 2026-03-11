@@ -1,6 +1,6 @@
 import os
 import json
-from .db import upsert_lora
+from .db import upsert_lora, get_loras_without_hash
 
 def parse_metadata_file(filepath):
     """
@@ -116,4 +116,6 @@ def scan_directory(directory_path):
         processed += 1
         yield f"Processed {processed} / {total_files} files ({int((processed/total_files)*100)}%)", msg
 
-    yield f"Scan complete. Processed {total_files} files.", f"Finished scanning {total_files} Lora files."
+    unhashed_count = len(get_loras_without_hash())
+    
+    yield f"Scan complete. {unhashed_count} files require hash calculation.", f"Finished scanning {total_files} Lora files. {unhashed_count} files in the database are currently missing an AutoV2 Hash."
