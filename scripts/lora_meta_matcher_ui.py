@@ -59,14 +59,14 @@ def ui_tab():
                 shared.opts.save(shared.config_filename)
                 
             for summary, msg in scan_directory(directory):
-                log = msg + "\n" + log
+                log = log + "\n" + msg if log else msg
                 yield summary, log
                 
         def run_hashing():
             st.halt_hashing = False
             log = ""
             for summary, msg in process_missing_hashes(halt_check=lambda: st.halt_hashing):
-                log = msg + "\n" + log
+                log = log + "\n" + msg if log else msg
                 yield summary, log
                 
         def run_api_fetch():
@@ -77,7 +77,7 @@ def ui_tab():
                 log = "Warning: No CivitAI API token found in Settings. Trying without token...\n"
                 
             for summary, msg in process_missing_civitai_metadata(token=token, halt_check=lambda: st.halt_api):
-                log = msg + "\n" + log
+                log = log + "\n" + msg if log else msg
                 yield summary, log
                 
         def analyze_image(img, include_triggers):
