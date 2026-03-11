@@ -2,7 +2,7 @@ import os
 import gradio as gr
 from modules import script_callbacks, shared
 
-from lora_meta_matcher.db import init_db
+from lora_meta_matcher.db import init_db, get_lora_by_hash, upsert_lora
 from lora_meta_matcher.scanner import scan_directory
 from lora_meta_matcher.hashing import process_missing_hashes
 from lora_meta_matcher.civitai import process_missing_civitai_metadata, fetch_civitai_version_info
@@ -100,13 +100,30 @@ def ui_tab():
                         if data_res and status == 200:
                             if "baseModel" in data_res:
                                 m["base_model"] = data_res["baseModel"]
-                            # Also grab hash if we can, to show to the user
+                            fetched_hash = ""
                             if "files" in data_res and isinstance(data_res["files"], list):
                                 for file_info in data_res["files"]:
                                     if "hashes" in file_info and isinstance(file_info["hashes"], dict):
                                         hashes = file_info["hashes"]
-                                        m["autov2_hash"] = hashes.get("AutoV2", hashes.get("SHA256", ""))
-                                        break
+                                        fetched_hash = hashes.get("AutoV2", hashes.get("SHA256", ""))
+                                        if fetched_hash:
+                                            m["autov2_hash"] = fetched_hash
+                                            break
+                                            
+                            # Use fetched hash to see if the user already scanned the file locally
+                            if fetched_hash:
+                                loc_matches = get_lora_by_hash(fetched_hash)
+                                if loc_matches:
+                                    loc = loc_matches[0]
+                                    m["filename"] = loc["filename"]
+                                    m["filepath"] = loc["filepath"]
+                                    m["trigger_words"] = loc["trigger_words"]
+                                    # Connect the local file to this Civitai ID so it instant-matches next time
+                                    upsert_lora(
+                                        filename=loc["filename"],
+                                        filepath=loc["filepath"],
+                                        civitai_version_id=vid
+                                    )
                     except Exception as e:
                         print(f"Failed to dynamically fetch ID {vid}: {e}")
             
