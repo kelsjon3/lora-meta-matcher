@@ -96,10 +96,13 @@ def ui_tab():
             
             matched = match_loras_to_db(loras)
             
-            # Fetch missing info for Loras not found in DB but have a Civitai ID
+            # Fetch missing info for Loras not found in DB or those missing a proper name
             token = getattr(shared.opts, "civitai_api_token", "")
             for m in matched:
-                if not m["filename"] and m.get("civitai_version_id") and not m.get("base_model"):
+                is_unknown = m.get("original_name", "").startswith("UnknownLora_")
+                missing_info = not m["filename"] or not m.get("base_model") or is_unknown
+                
+                if missing_info and m.get("civitai_version_id"):
                     vid = m["civitai_version_id"]
                     try:
                         data_res, status = fetch_civitai_version_info(vid, token)
@@ -107,7 +110,6 @@ def ui_tab():
                             if "baseModel" in data_res:
                                 m["base_model"] = data_res["baseModel"]
                                 
-                            is_unknown = m.get("original_name", "").startswith("UnknownLora_")
                             if is_unknown:
                                 m_name = data_res.get("model", {}).get("name")
                                 v_name = data_res.get("name")
@@ -125,7 +127,7 @@ def ui_tab():
                                             break
                                             
                             # Use fetched hash to see if the user already scanned the file locally
-                            if fetched_hash:
+                            if fetched_hash and not m.get("filename"):
                                 loc_matches = get_lora_by_hash(fetched_hash)
                                 if loc_matches:
                                     loc = loc_matches[0]
