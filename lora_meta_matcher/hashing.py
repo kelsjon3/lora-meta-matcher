@@ -57,6 +57,7 @@ def process_missing_hashes(halt_check=None):
         msg_log = f"({count+1}/{total_files}) Calculating hash for '{filename}'..."
         msg_sum = f"Processed {count+1} / {total_files} files ({int(((count+1)/total_files)*100)}%)"
         
+        print(f"[Lora Meta Matcher] {msg_log}")
         yield msg_sum, msg_log
         
         autov2_hash = get_autov2_hash(filepath, halt_check)
