@@ -74,7 +74,7 @@ def ui_tab():
                 log = msg + "\n" + log
                 yield summary, log
                 
-        def analyze_image(img):
+        def analyze_image(img, include_triggers):
             if img is None:
                 return "No image provided.", "", ""
             
@@ -169,7 +169,7 @@ def ui_tab():
                 
             table_html += "</table>"
                     
-            new_prompt = reconstruct_prompt(data, matched)
+            new_prompt = reconstruct_prompt(data, matched, include_triggers)
             
             return raw_prompt, new_prompt, table_html
 
@@ -183,7 +183,9 @@ def ui_tab():
                             raw_prompt = gr.Textbox(label="Extracted Raw Metadata", lines=3, interactive=False)
                             
                         with gr.Accordion("Prompt Construction", open=True):
-                            matched_prompt = gr.Textbox(label="Matched Prompt with Trigger Words", lines=4, interactive=False, show_copy_button=True)
+                            include_triggers = gr.Checkbox(label="Include Trigger Words", value=True)
+                            matched_prompt = gr.Textbox(label="Matched Prompt", lines=4, interactive=False, show_copy_button=True, elem_id="lora_meta_matched_prompt")
+                            send_to_txt2img = gr.Button("Send to txt2img", variant="primary")
                             
                     with gr.Column(scale=1):
                         # Use a fixed height for the image to avoid scrolling
@@ -194,7 +196,40 @@ def ui_tab():
                 with gr.Row():
                     lora_table = gr.HTML(value="")
 
-                image_upload.change(fn=analyze_image, inputs=[image_upload], outputs=[raw_prompt, matched_prompt, lora_table])
+                image_upload.change(fn=analyze_image, inputs=[image_upload, include_triggers], outputs=[raw_prompt, matched_prompt, lora_table])
+                include_triggers.change(fn=analyze_image, inputs=[image_upload, include_triggers], outputs=[raw_prompt, matched_prompt, lora_table])
+                
+                send_to_txt2img.click(
+                    fn=None,
+                    inputs=[matched_prompt],
+                    outputs=[],
+                    _js="""
+                    function(prompt_text) {
+                        try {
+                            const txt2img_box = document.querySelector('#txt2img_prompt textarea');
+                            if (txt2img_box && prompt_text) {
+                                let current_val = txt2img_box.value;
+                                if (current_val && !current_val.endsWith(' ')) {
+                                    current_val += ' ';
+                                }
+                                if (current_val && !current_val.endsWith(',')) {
+                                    current_val += ', ';
+                                }
+                                txt2img_box.value = current_val + prompt_text;
+                                
+                                // Dispatch input event to trigger Gradio internal state update
+                                const event = new Event('input', { bubbles: true });
+                                txt2img_box.dispatchEvent(event);
+                            } else {
+                                console.warn("Could not find txt2img_prompt textarea or prompt is empty.");
+                            }
+                        } catch (e) {
+                            console.error("Error sending to txt2img:", e);
+                        }
+                        return [];
+                    }
+                    """
+                )
 
             with gr.TabItem("Lora Database Manager"):
                 with gr.Column():

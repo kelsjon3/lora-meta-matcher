@@ -27,6 +27,26 @@ def parse_a1111_metadata(info):
     for name, weight in lora_matches:
         loras.append({"name": name, "weight": weight})
         
+    # Extract embedded hashes manually
+    extracted_hashes = {}
+    lora_hashes_match = re.search(r'Lora hashes:\s*"([^"]+)"', params)
+    if lora_hashes_match:
+        pairs = [p.strip() for p in lora_hashes_match.group(1).split(",")]
+        for p in pairs:
+            if ":" in p:
+                k, v = p.split(":", 1)
+                extracted_hashes[k.strip()] = v.strip()
+                
+    hashes_match = re.search(r'Hashes:\s*(\{.*?\})', params)
+    if hashes_match:
+        try:
+            h_dict = json.loads(hashes_match.group(1))
+            for k, v in h_dict.items():
+                if k.startswith("lora:"):
+                    extracted_hashes[k[5:]] = v
+        except:
+            pass
+        
     # 2. Civitai Resources JSON extraction
     civitai_match = re.search(r'Civitai resources:\s*(\[.*\])', params, flags=re.DOTALL)
     if civitai_match:
@@ -43,6 +63,12 @@ def parse_a1111_metadata(info):
                             loras.append({"name": name, "weight": str(weight), "civitai_version_id": modelVersionId})
         except Exception:
             pass
+        
+    # 3. Attach any extracted hashes to the loras list
+    for l in loras:
+        name = l["name"]
+        if name in extracted_hashes:
+            l["autov2_hash"] = extracted_hashes[name]
         
     return {
         "raw_prompt": params, # return the entire raw string
@@ -202,6 +228,7 @@ def match_loras_to_db(loras):
             name = lora["name"]
             weight = lora["weight"]
             civitai_version_id = lora.get("civitai_version_id")
+            autov2_hash = lora.get("autov2_hash")
             
             results = []
             
@@ -210,7 +237,12 @@ def match_loras_to_db(loras):
                 cursor.execute('SELECT * FROM loras WHERE civitai_version_id=?', (civitai_version_id,))
                 results = cursor.fetchall()
                 
-            # 2. Fallback to generic name search
+            # 2. Try to match exact AutoV2 Hash
+            if not results and autov2_hash:
+                cursor.execute('SELECT * FROM loras WHERE autov2_hash=? OR autov2_hash LIKE ?', (autov2_hash, f"{autov2_hash}%"))
+                results = cursor.fetchall()
+                
+            # 3. Fallback to generic name search
             if not results:
                 cursor.execute('SELECT * FROM loras WHERE filename LIKE ? OR filepath LIKE ?', (f"%{name}%.safetensors", f"%{name}%"))
                 results = cursor.fetchall()
@@ -241,10 +273,10 @@ def match_loras_to_db(loras):
                 
     return matched
 
-def reconstruct_prompt(parsed_data, matched_loras):
+def reconstruct_prompt(parsed_data, matched_loras, include_triggers=True):
     """
     Returns only the fully qualified lora tags (using filenames)
-    and their associated trigger words.
+    and their associated trigger words if include_triggers is True.
     """
     additions = []
     
@@ -254,7 +286,7 @@ def reconstruct_prompt(parsed_data, matched_loras):
             tag = f"<lora:{basename}:{lora['weight']}>"
             additions.append(tag)
             
-            if lora["trigger_words"]:
+            if include_triggers and lora["trigger_words"]:
                 additions.append(lora["trigger_words"])
             
     return ", ".join(additions)
