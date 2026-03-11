@@ -110,21 +110,30 @@ def ui_tab():
                             if "baseModel" in data_res:
                                 m["base_model"] = data_res["baseModel"]
                                 
-                            if is_unknown:
+                            if is_unknown or m.get("original_name", "").startswith("urn:air:"):
                                 m_name = data_res.get("model", {}).get("name")
                                 v_name = data_res.get("name")
                                 if m_name:
-                                    m["original_name"] = f"{m_name} ({v_name})" if v_name else m_name
+                                    m["loraname"] = f"{m_name} ({v_name})" if v_name else m_name
                                     
-                            fetched_hash = ""
+                            api_autov2 = None
+                            api_autov3 = None
+                            api_sha256 = None
                             if "files" in data_res and isinstance(data_res["files"], list):
                                 for file_info in data_res["files"]:
                                     if "hashes" in file_info and isinstance(file_info["hashes"], dict):
                                         hashes = file_info["hashes"]
-                                        fetched_hash = hashes.get("AutoV2", hashes.get("SHA256", ""))
-                                        if fetched_hash:
-                                            m["autov2_hash"] = fetched_hash
-                                            break
+                                        api_autov2 = hashes.get("AutoV2")
+                                        api_autov3 = hashes.get("AutoV3")
+                                        api_sha256 = hashes.get("SHA256")
+                                    if api_autov2 or api_sha256:
+                                        break
+                                        
+                            fetched_hash = api_autov2 or api_autov3 or api_sha256
+                            if fetched_hash:
+                                m["autov2_hash"] = api_autov2
+                                m["autov3_hash"] = api_autov3
+                                m["sha256_hash"] = api_sha256
                                             
                             # Use fetched hash to see if the user already scanned the file locally
                             if fetched_hash and not m.get("filename"):
@@ -138,7 +147,11 @@ def ui_tab():
                                     upsert_lora(
                                         filename=loc["filename"],
                                         filepath=loc["filepath"],
-                                        civitai_version_id=vid
+                                        civitai_version_id=vid,
+                                        loraname=m.get("loraname"),
+                                        autov2_hash=api_autov2 if api_autov2 else None,
+                                        autov3_hash=api_autov3 if api_autov3 else None,
+                                        sha256_hash=api_sha256 if api_sha256 else None
                                     )
                     except Exception as e:
                         print(f"Failed to dynamically fetch ID {vid}: {e}")
@@ -154,7 +167,7 @@ def ui_tab():
             
             for m in matched:
                 saved = "✅" if m["filename"] else "❌"
-                name = m.get("original_name", "")
+                name = m.get("loraname") or m.get("original_name", "")
                 filename = m.get("filename", "") or ""
                 
                 # Extract subfolder relative to Lora dir if possible, else just basename dir
@@ -164,7 +177,7 @@ def ui_tab():
                     subfolder = os.path.basename(os.path.dirname(m["filepath"]))
                     
                 base_model = m.get("base_model", "") or ""
-                hash_val = m.get("autov2_hash", "") or ""
+                hash_val = m.get("autov2_hash") or m.get("autov3_hash") or m.get("sha256_hash") or ""
                 
                 download_link = ""
                 vid = m.get("civitai_version_id")

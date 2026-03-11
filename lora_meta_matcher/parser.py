@@ -42,7 +42,7 @@ def parse_a1111_metadata(info):
         try:
             h_dict = json.loads(hashes_match.group(1))
             for k, v in h_dict.items():
-                if k.startswith("lora:"):
+                if k.lower().startswith("lora:"):
                     extracted_hashes[k[5:]] = v
         except:
             pass
@@ -180,6 +180,16 @@ def decode_user_comment(user_comment):
     else:
         return user_comment.decode('utf-8', errors='ignore')
 
+def extract_urn_version_ids(loras):
+    for lora in loras:
+        name = lora.get("name", "")
+        # Extract modelVersionId from formats like "urn:air:sdxl:lora:civitai:212532@244808"
+        if isinstance(name, str) and name.startswith("urn:air:"):
+            match = re.search(r'civitai:\d+@(\d+)', name)
+            if match and "civitai_version_id" not in lora:
+                lora["civitai_version_id"] = int(match.group(1))
+    return loras
+
 def extract_image_metadata(img):
     info = dict(img.info) # Copy to avoid mutating original
     
@@ -203,11 +213,13 @@ def extract_image_metadata(img):
     # Attempt parsing as A1111 format
     data = parse_a1111_metadata(info)
     if data:
+        data["loras"] = extract_urn_version_ids(data["loras"])
         return data
         
     # Attempt parsing as ComfyUI format
     data = parse_comfyui_metadata(info)
     if data:
+        data["loras"] = extract_urn_version_ids(data["loras"])
         return data
         
     # If no explicit parser worked but we still found a raw string (e.g. prompt, parameters, workflow, or exif)
@@ -243,9 +255,14 @@ def match_loras_to_db(loras):
                 cursor.execute('SELECT * FROM loras WHERE civitai_version_id=?', (civitai_version_id,))
                 results = cursor.fetchall()
                 
-            # 2. Try to match exact AutoV2 Hash
-            if not results and autov2_hash:
-                cursor.execute('SELECT * FROM loras WHERE autov2_hash=? OR autov2_hash LIKE ?', (autov2_hash, f"{autov2_hash}%"))
+            # 2. Try to match extracted hash against any specific hash column with a fallback
+            parsed_hash = lora.get("autov2_hash")
+            if not results and parsed_hash:
+                cursor.execute('''
+                    SELECT * FROM loras WHERE 
+                    autov2_hash=? OR autov3_hash=? OR sha256_hash=? OR
+                    autov2_hash LIKE ? OR autov3_hash LIKE ? OR sha256_hash LIKE ?
+                ''', (parsed_hash, parsed_hash, parsed_hash, f"{parsed_hash}%", f"{parsed_hash}%", f"{parsed_hash}%"))
                 results = cursor.fetchall()
                 
             # 3. Fallback to generic name search
@@ -261,9 +278,12 @@ def match_loras_to_db(loras):
                     "filename": row["filename"],
                     "filepath": row["filepath"],
                     "autov2_hash": row["autov2_hash"],
+                    "autov3_hash": row["autov3_hash"],
+                    "sha256_hash": row["sha256_hash"],
                     "base_model": row["base_model"],
                     "civitai_version_id": row.get("civitai_version_id") or civitai_version_id,
-                    "trigger_words": row["trigger_words"]
+                    "trigger_words": row["trigger_words"],
+                    "loraname": row.get("loraname")
                 })
             else:
                 matched.append({
@@ -272,9 +292,12 @@ def match_loras_to_db(loras):
                     "filename": None,
                     "filepath": None,
                     "autov2_hash": None,
+                    "autov3_hash": None,
+                    "sha256_hash": None,
                     "base_model": None,
                     "civitai_version_id": civitai_version_id,
-                    "trigger_words": None
+                    "trigger_words": None,
+                    "loraname": None
                 })
                 
     return matched

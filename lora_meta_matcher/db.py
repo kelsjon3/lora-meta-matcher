@@ -15,8 +15,11 @@ def init_db():
                 filename TEXT NOT NULL,
                 filepath TEXT UNIQUE NOT NULL,
                 autov2_hash TEXT,
+                autov3_hash TEXT,
+                sha256_hash TEXT,
                 trigger_words TEXT,
                 base_model TEXT,
+                loraname TEXT,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -33,25 +36,46 @@ def init_db():
         except sqlite3.OperationalError:
             pass # Column already exists
             
+        # Add loraname column
+        try:
+            cursor.execute("ALTER TABLE loras ADD COLUMN loraname TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+            
+        # Add tracking for other hash types
+        try:
+            cursor.execute("ALTER TABLE loras ADD COLUMN autov3_hash TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute("ALTER TABLE loras ADD COLUMN sha256_hash TEXT")
+        except sqlite3.OperationalError:
+            pass
+            
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_filepath ON loras(filepath)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON loras(autov2_hash)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_autov2_hash ON loras(autov2_hash)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_autov3_hash ON loras(autov3_hash)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sha256_hash ON loras(sha256_hash)')
         conn.commit()
 
-def upsert_lora(filename, filepath, autov2_hash=None, trigger_words=None, base_model=None, metadata_fetch_attempted=None, civitai_version_id=None):
+def upsert_lora(filename, filepath, autov2_hash=None, autov3_hash=None, sha256_hash=None, trigger_words=None, base_model=None, metadata_fetch_attempted=None, civitai_version_id=None, loraname=None):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO loras (filename, filepath, autov2_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, COALESCE(?, 0), ?, CURRENT_TIMESTAMP)
+            INSERT INTO loras (filename, filepath, autov2_hash, autov3_hash, sha256_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id, loraname, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(filepath) DO UPDATE SET
                 filename=excluded.filename,
                 autov2_hash=COALESCE(excluded.autov2_hash, loras.autov2_hash),
+                autov3_hash=COALESCE(excluded.autov3_hash, loras.autov3_hash),
+                sha256_hash=COALESCE(excluded.sha256_hash, loras.sha256_hash),
                 trigger_words=COALESCE(excluded.trigger_words, loras.trigger_words),
                 base_model=COALESCE(excluded.base_model, loras.base_model),
                 metadata_fetch_attempted=COALESCE(excluded.metadata_fetch_attempted, loras.metadata_fetch_attempted),
                 civitai_version_id=COALESCE(excluded.civitai_version_id, loras.civitai_version_id),
+                loraname=COALESCE(excluded.loraname, loras.loraname),
                 updated_at=CURRENT_TIMESTAMP
-        ''', (filename, filepath, autov2_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id))
+        ''', (filename, filepath, autov2_hash, autov3_hash, sha256_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id, loraname))
         conn.commit()
 
 def get_lora_by_path(filepath):
@@ -80,7 +104,17 @@ def get_loras_without_triggers_but_have_hash():
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute('SELECT filepath, autov2_hash FROM loras WHERE (trigger_words IS NULL OR trigger_words = "") AND (autov2_hash IS NOT NULL AND autov2_hash != "") AND metadata_fetch_attempted = 0')
+        cursor.execute('''
+            SELECT filepath, autov2_hash, autov3_hash, sha256_hash 
+            FROM loras 
+            WHERE (trigger_words IS NULL OR trigger_words = "") 
+            AND (
+                (autov2_hash IS NOT NULL AND autov2_hash != "") OR 
+                (autov3_hash IS NOT NULL AND autov3_hash != "") OR 
+                (sha256_hash IS NOT NULL AND sha256_hash != "")
+            ) 
+            AND metadata_fetch_attempted = 0
+        ''')
         results = cursor.fetchall()
         return [dict(r) for r in results]
 

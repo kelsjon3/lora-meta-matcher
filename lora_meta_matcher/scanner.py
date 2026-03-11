@@ -15,8 +15,11 @@ def parse_metadata_file(filepath):
             data = json.load(f)
             
         autov2_hash = None
+        autov3_hash = None
+        sha256_hash = None
         trigger_words = None
         base_model = None
+        loraname = None
         
         # Base Model
         if "baseModel" in data:
@@ -26,7 +29,7 @@ def parse_metadata_file(filepath):
         if "trainedWords" in data and isinstance(data["trainedWords"], list):
             trigger_words = ", ".join(data["trainedWords"])
 
-        # AutoV2 Hash - CivitAI format
+        # Hashes - CivitAI format
         if "files" in data and isinstance(data["files"], list):
             for file_info in data["files"]:
                 # Often the primary file or the first file has the hashes
@@ -34,29 +37,45 @@ def parse_metadata_file(filepath):
                     hashes = file_info["hashes"]
                     if "AutoV2" in hashes:
                         autov2_hash = hashes["AutoV2"]
-                    elif "SHA256" in hashes:
-                        autov2_hash = hashes["SHA256"]
+                    if "AutoV3" in hashes:
+                        autov3_hash = hashes["AutoV3"]
+                    if "SHA256" in hashes:
+                        sha256_hash = hashes["SHA256"]
                 
-                # If we found a hash, we can stop searching for it
-                if autov2_hash:
+                # If we found any hash, we can probably stop searching for it,
+                # but let's just make sure we check the first file mostly.
+                if autov2_hash or sha256_hash:
                     break
 
-        if not autov2_hash:
+        if not autov2_hash and not sha256_hash:
             if "sha256" in data:
-                autov2_hash = data["sha256"]
-            elif "autov2" in data:
+                sha256_hash = data["sha256"]
+            if "autov2" in data:
                 autov2_hash = data["autov2"]
+            if "autov3" in data:
+                autov3_hash = data["autov3"]
                 
         # Civitai Version ID
         civitai_version_id = None
         if "id" in data and isinstance(data["id"], int):
             civitai_version_id = data["id"]
             
+        # Lora Name
+        if "model" in data and isinstance(data["model"], dict) and "name" in data["model"]:
+            m_name = data["model"]["name"]
+            v_name = data.get("name")
+            loraname = f"{m_name} ({v_name})" if v_name else m_name
+        elif "name" in data:
+            loraname = data["name"]
+            
         return {
             "autov2_hash": autov2_hash,
+            "autov3_hash": autov3_hash,
+            "sha256_hash": sha256_hash,
             "trigger_words": trigger_words,
             "base_model": base_model,
-            "civitai_version_id": civitai_version_id
+            "civitai_version_id": civitai_version_id,
+            "loraname": loraname
         }
     except Exception as e:
         print(f"Error parsing metadata file {filepath}: {e}")
@@ -118,9 +137,12 @@ def scan_directory(directory_path):
                 filename=filename,
                 filepath=filepath,
                 autov2_hash=metadata.get("autov2_hash"),
+                autov3_hash=metadata.get("autov3_hash"),
+                sha256_hash=metadata.get("sha256_hash"),
                 trigger_words=metadata.get("trigger_words"),
                 base_model=metadata.get("base_model"),
                 civitai_version_id=metadata.get("civitai_version_id"),
+                loraname=metadata.get("loraname"),
                 metadata_fetch_attempted=1
             )
             msg = f"Found {filename} (Extracted metadata)"
