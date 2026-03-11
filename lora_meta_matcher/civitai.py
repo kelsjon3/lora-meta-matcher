@@ -5,6 +5,32 @@ import requests
 from .db import upsert_lora, get_loras_without_triggers_but_have_hash
 
 CIVITAI_API_URL = "https://civitai.com/api/v1/model-versions/by-hash/"
+CIVITAI_API_VERSION_URL = "https://civitai.com/api/v1/model-versions/"
+
+def fetch_civitai_version_info(version_id, token=None):
+    """
+    Fetches the model version info from CivitAI using the version ID.
+    """
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+        
+    url = f"{CIVITAI_API_VERSION_URL}{version_id}"
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json(), 200
+        elif response.status_code == 404:
+            return None, 404
+        elif response.status_code == 429:
+            print(f"Rate limited by CivitAI.")
+            return None, 429
+        else:
+            print(f"Failed to fetch for version {version_id}. Status: {response.status_code}")
+            return None, response.status_code
+    except Exception as e:
+        print(f"Error fetching from CivitAI API for version {version_id}: {e}")
+        return None, 0
 
 def fetch_civitai_info(autov2_hash, token=None):
     """

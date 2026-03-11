@@ -5,7 +5,7 @@ from modules import script_callbacks, shared
 from lora_meta_matcher.db import init_db
 from lora_meta_matcher.scanner import scan_directory
 from lora_meta_matcher.hashing import process_missing_hashes
-from lora_meta_matcher.civitai import process_missing_civitai_metadata
+from lora_meta_matcher.civitai import process_missing_civitai_metadata, fetch_civitai_version_info
 from lora_meta_matcher.parser import extract_image_metadata, match_loras_to_db, reconstruct_prompt
 
 init_db()
@@ -83,6 +83,26 @@ def ui_tab():
                  return "No prompt or lora data found.", "", ""
             
             matched = match_loras_to_db(loras)
+            
+            # Fetch missing info for Loras not found in DB but have a Civitai ID
+            token = getattr(shared.opts, "civitai_api_token", "")
+            for m in matched:
+                if not m["filename"] and m.get("civitai_version_id") and not m.get("base_model"):
+                    vid = m["civitai_version_id"]
+                    try:
+                        data_res, status = fetch_civitai_version_info(vid, token)
+                        if data_res and status == 200:
+                            if "baseModel" in data_res:
+                                m["base_model"] = data_res["baseModel"]
+                            # Also grab hash if we can, to show to the user
+                            if "files" in data_res and isinstance(data_res["files"], list):
+                                for file_info in data_res["files"]:
+                                    if "hashes" in file_info and isinstance(file_info["hashes"], dict):
+                                        hashes = file_info["hashes"]
+                                        m["autov2_hash"] = hashes.get("AutoV2", hashes.get("SHA256", ""))
+                                        break
+                    except Exception as e:
+                        print(f"Failed to dynamically fetch ID {vid}: {e}")
             
             table_html = "<table style='width: 100%; text-align: left; border-collapse: collapse; margin-top: 10px;'>"
             table_html += "<tr><th style='border-bottom: 1px solid #ddd; padding: 8px;'>Saved</th>"
