@@ -18,17 +18,20 @@ def fetch_civitai_info(autov2_hash, token=None):
     try:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            return response.json()
+            return response.json(), 200
         elif response.status_code == 404:
-            return None
+            return None, 404
+        elif response.status_code == 429:
+            print(f"Rate limited by CivitAI.")
+            return None, 429
         else:
             print(f"Failed to fetch for hash {autov2_hash}. Status: {response.status_code}")
-            return None
+            return None, response.status_code
     except Exception as e:
         print(f"Error fetching from CivitAI API for hash {autov2_hash}: {e}")
-        return None
+        return None, 0
 
-def process_missing_civitai_metadata(token=None, delay=1.0):
+def process_missing_civitai_metadata(token=None, delay=2.0):
     """
     Finds loras in the DB with a hash but no trigger_words,
     makes API requests to CivitAI, and saves the result to a .civitai.info file next to the lora.
@@ -53,7 +56,12 @@ def process_missing_civitai_metadata(token=None, delay=1.0):
         
         yield msg_sum, msg_log
         
-        data = fetch_civitai_info(autov2_hash, token)
+        data, status_code = fetch_civitai_info(autov2_hash, token)
+        
+        if status_code == 429:
+            yield msg_sum, "CivitAI Rate Limit Exceeded (HTTP 429). Halting API fetches."
+            break # Halt immediately
+            
         if data:
             # Save the .civitai.info file next to the original file
             base_name = os.path.splitext(filepath)[0]
@@ -79,11 +87,20 @@ def process_missing_civitai_metadata(token=None, delay=1.0):
                 filename=filename,
                 filepath=filepath,
                 trigger_words=trigger_words,
-                base_model=base_model
+                base_model=base_model,
+                metadata_fetch_attempted=1
             )
             yield msg_sum, f"Successfully updated metadata for '{filename}'."
-        else:
+        elif status_code == 404:
+            # Model missing from CivitAI; mark attempted to prevent infinite refetch polling
+            upsert_lora(
+                filename=filename,
+                filepath=filepath,
+                metadata_fetch_attempted=1
+            )
             yield msg_sum, f"No data found on CivitAI for hash {autov2_hash[:10]}..."
+        else:
+            yield msg_sum, f"Failed to fetch metadata (API Error {status_code}) for '{filename}'."
             
         time.sleep(delay) # Rate limiting
             

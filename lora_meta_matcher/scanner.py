@@ -113,7 +113,8 @@ def scan_directory(directory_path):
                 filepath=filepath,
                 autov2_hash=metadata.get("autov2_hash"),
                 trigger_words=metadata.get("trigger_words"),
-                base_model=metadata.get("base_model")
+                base_model=metadata.get("base_model"),
+                metadata_fetch_attempted=1
             )
             msg = f"Found {filename} (Extracted metadata)"
         else:

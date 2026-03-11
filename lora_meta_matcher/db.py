@@ -20,23 +20,31 @@ def init_db():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # Add column for tracking API fetches
+        try:
+            cursor.execute("ALTER TABLE loras ADD COLUMN metadata_fetch_attempted INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+            
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_filepath ON loras(filepath)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON loras(autov2_hash)')
         conn.commit()
 
-def upsert_lora(filename, filepath, autov2_hash=None, trigger_words=None, base_model=None):
+def upsert_lora(filename, filepath, autov2_hash=None, trigger_words=None, base_model=None, metadata_fetch_attempted=None):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO loras (filename, filepath, autov2_hash, trigger_words, base_model, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO loras (filename, filepath, autov2_hash, trigger_words, base_model, metadata_fetch_attempted, updated_at)
+            VALUES (?, ?, ?, ?, ?, COALESCE(?, 0), CURRENT_TIMESTAMP)
             ON CONFLICT(filepath) DO UPDATE SET
                 filename=excluded.filename,
                 autov2_hash=COALESCE(excluded.autov2_hash, loras.autov2_hash),
                 trigger_words=COALESCE(excluded.trigger_words, loras.trigger_words),
                 base_model=COALESCE(excluded.base_model, loras.base_model),
+                metadata_fetch_attempted=COALESCE(excluded.metadata_fetch_attempted, loras.metadata_fetch_attempted),
                 updated_at=CURRENT_TIMESTAMP
-        ''', (filename, filepath, autov2_hash, trigger_words, base_model))
+        ''', (filename, filepath, autov2_hash, trigger_words, base_model, metadata_fetch_attempted))
         conn.commit()
 
 def get_lora_by_path(filepath):
@@ -65,7 +73,7 @@ def get_loras_without_triggers_but_have_hash():
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute('SELECT filepath, autov2_hash FROM loras WHERE (trigger_words IS NULL OR trigger_words = "") AND (autov2_hash IS NOT NULL AND autov2_hash != "")')
+        cursor.execute('SELECT filepath, autov2_hash FROM loras WHERE (trigger_words IS NULL OR trigger_words = "") AND (autov2_hash IS NOT NULL AND autov2_hash != "") AND metadata_fetch_attempted = 0')
         results = cursor.fetchall()
         return [dict(r) for r in results]
 
