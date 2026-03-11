@@ -36,11 +36,16 @@ def ui_tab():
     with gr.Blocks(analytics_enabled=False) as interface:
         class UIState:
             halt_hashing = False
+            halt_api = False
         st = UIState()
         
         def run_halt():
             st.halt_hashing = True
             return "Halt requested...", "Halting hash calculation gracefully..."
+            
+        def run_halt_api():
+            st.halt_api = True
+            return "Halt requested...", "Halting API fetches gracefully..."
         
         def run_scan(directory):
             log = ""
@@ -59,12 +64,13 @@ def ui_tab():
                 yield summary, log
                 
         def run_api_fetch():
+            st.halt_api = False
             log = ""
             token = getattr(shared.opts, "civitai_api_token", "")
             if not token:
                 log = "Warning: No CivitAI API token found in Settings. Trying without token...\n"
                 
-            for summary, msg in process_missing_civitai_metadata(token=token):
+            for summary, msg in process_missing_civitai_metadata(token=token, halt_check=lambda: st.halt_api):
                 log = msg + "\n" + log
                 yield summary, log
                 
@@ -177,13 +183,15 @@ def ui_tab():
                 with gr.Column():
                     gr.Markdown("### Lora Database Manager")
                     default_dir = getattr(shared.opts, "lora_meta_matcher_scan_dir", "")
-                    scan_dir_path = gr.Textbox(label="Directory to Scan", value=default_dir, placeholder="/path/to/loras", interactive=True)
+                    scan_dir_path = gr.Textbox(label="Directory to Scan", value=default_dir, placeholder="/path/to/loras", interactive=True, elem_id="lora_meta_matcher_scan_dir_path")
                     
                     with gr.Row():
                         scan_btn = gr.Button("1. Scan Directory", variant="primary")
                         hash_btn = gr.Button("2. Calculate Missing Hashes (CPU Intensive)")
                         halt_hash_btn = gr.Button("Halt Hashing", variant="stop")
+                    with gr.Row():
                         api_btn = gr.Button("3. Fetch Missing Metadata from CivitAI (API limit)")
+                        halt_api_btn = gr.Button("Halt API Fetches", variant="stop")
                     
                     summary_log = gr.Textbox(label="Progress Summary", lines=1, interactive=False)
                     output_log = gr.Textbox(label="Detailed Log", lines=10, interactive=False)
@@ -191,7 +199,9 @@ def ui_tab():
                     scan_btn.click(fn=run_scan, inputs=[scan_dir_path], outputs=[summary_log, output_log])
                     hash_btn.click(fn=run_hashing, inputs=[], outputs=[summary_log, output_log])
                     halt_hash_btn.click(fn=run_halt, inputs=[], outputs=[summary_log, output_log])
+                    
                     api_btn.click(fn=run_api_fetch, inputs=[], outputs=[summary_log, output_log])
+                    halt_api_btn.click(fn=run_halt_api, inputs=[], outputs=[summary_log, output_log])
 
     return [(interface, "Lora Meta Matcher", "lora_meta_matcher")]
 

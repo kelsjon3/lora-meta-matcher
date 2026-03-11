@@ -57,7 +57,7 @@ def fetch_civitai_info(autov2_hash, token=None):
         print(f"Error fetching from CivitAI API for hash {autov2_hash}: {e}")
         return None, 0
 
-def process_missing_civitai_metadata(token=None, delay=2.0):
+def process_missing_civitai_metadata(token=None, delay=2.0, halt_check=None):
     """
     Finds loras in the DB with a hash but no trigger_words,
     makes API requests to CivitAI, and saves the result to a .civitai.info file next to the lora.
@@ -73,6 +73,10 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
     yield f"Preparing fetching for {total_files} Loras...", f"Found {total_files} Loras missing metadata. Starting CivitAI fetch process..."
     
     for count, lora in enumerate(loras):
+        if halt_check and halt_check():
+            yield f"Halted at {count} / {total_files}", f"User requested halt. Stopped after processing {count} requests."
+            break
+            
         filepath = lora["filepath"]
         autov2_hash = lora["autov2_hash"]
         filename = os.path.basename(filepath)
@@ -117,7 +121,9 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
                 metadata_fetch_attempted=1,
                 civitai_version_id=civitai_version_id
             )
-            yield msg_sum, f"[{status_code}] OK - '{filename}'"
+            msg_log = f"[{status_code}] OK - '{filename}'"
+            print(msg_log)
+            yield msg_sum, msg_log
         elif status_code == 404:
             # Model missing from CivitAI; mark attempted to prevent infinite refetch polling
             upsert_lora(
@@ -125,9 +131,13 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
                 filepath=filepath,
                 metadata_fetch_attempted=1
             )
-            yield msg_sum, f"[404] Not Found - '{filename}' (Hash {autov2_hash[:10]})"
+            msg_log = f"[404] Not Found - '{filename}' (Hash {autov2_hash[:10]})"
+            print(msg_log)
+            yield msg_sum, msg_log
         else:
-            yield msg_sum, f"[{status_code}] Error - '{filename}'"
+            msg_log = f"[{status_code}] Error - '{filename}'"
+            print(msg_log)
+            yield msg_sum, msg_log
             
         time.sleep(delay) # Rate limiting
             
