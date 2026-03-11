@@ -22,13 +22,23 @@ def on_ui_settings():
             section=section
         )
     )
-
+    shared.opts.add_option(
+        "lora_meta_matcher_scan_dir",
+        shared.OptionInfo(
+            "",
+            "Default Lora Directory for Scanning",
+            gr.Textbox,
+            {"interactive": True},
+            section=section
+        )
+    )
 def ui_tab():
     with gr.Blocks(analytics_enabled=False) as interface:
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### Lora Database Manager")
-                scan_dir_path = gr.Textbox(label="Directory to Scan", placeholder="/path/to/loras", interactive=True)
+                default_dir = getattr(shared.opts, "lora_meta_matcher_scan_dir", "")
+                scan_dir_path = gr.Textbox(label="Directory to Scan", value=default_dir, placeholder="/path/to/loras", interactive=True)
                 with gr.Row():
                     scan_btn = gr.Button("1. Scan Directory", variant="primary")
                     hash_btn = gr.Button("2. Calculate Missing Hashes (CPU Intensive)")

@@ -1,6 +1,6 @@
 import os
 import json
-from .db import upsert_lora, get_loras_without_hash
+from .db import upsert_lora, get_loras_without_hash, get_lora_by_path
 
 def parse_metadata_file(filepath):
     """
@@ -86,6 +86,16 @@ def scan_directory(directory_path):
         filename = os.path.basename(filepath)
         root = os.path.dirname(filepath)
                 
+        processed += 1
+        
+        # Check if already processed
+        existing = get_lora_by_path(filepath)
+        if existing:
+            # Skip metadata extraction since it's already in the DB
+            msg = f"Skipping {filename} (Already in database)"
+            yield f"Processed {processed} / {total_files} files ({int((processed/total_files)*100)}%)", msg
+            continue
+            
         # Look for metadata files
         base_name = os.path.splitext(filename)[0]
         civitai_info_path = os.path.join(root, f"{base_name}.civitai.info")
@@ -113,7 +123,6 @@ def scan_directory(directory_path):
             )
             msg = f"Found {filename} (No metadata found)"
             
-        processed += 1
         yield f"Processed {processed} / {total_files} files ({int((processed/total_files)*100)}%)", msg
 
     unhashed_count = len(get_loras_without_hash())
