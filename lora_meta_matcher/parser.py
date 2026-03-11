@@ -255,6 +255,10 @@ def match_loras_to_db(loras):
             
             if results:
                 row = dict(results[0])
+                if name.startswith("UnknownLora_") and "filename" in row and row["filename"]:
+                    import os
+                    name = os.path.splitext(row["filename"])[0]
+                    
                 matched.append({
                     "original_name": name,
                     "weight": weight,

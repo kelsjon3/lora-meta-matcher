@@ -106,6 +106,14 @@ def ui_tab():
                         if data_res and status == 200:
                             if "baseModel" in data_res:
                                 m["base_model"] = data_res["baseModel"]
+                                
+                            is_unknown = m.get("original_name", "").startswith("UnknownLora_")
+                            if is_unknown:
+                                m_name = data_res.get("model", {}).get("name")
+                                v_name = data_res.get("name")
+                                if m_name:
+                                    m["original_name"] = f"{m_name} ({v_name})" if v_name else m_name
+                                    
                             fetched_hash = ""
                             if "files" in data_res and isinstance(data_res["files"], list):
                                 for file_info in data_res["files"]:
