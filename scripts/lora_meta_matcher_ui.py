@@ -70,33 +70,65 @@ def ui_tab():
                 
         def analyze_image(img):
             if img is None:
-                return "No image provided.", "", "", ""
+                return "No image provided.", "", ""
             
             data = extract_image_metadata(img)
             if not data:
-                return "Failed to extract metadata from image.", "", "", ""
+                return "Failed to extract metadata from image.", "", ""
                 
             raw_prompt = data.get("raw_prompt", "")
             loras = data.get("loras", [])
             
             if not raw_prompt and not loras:
-                 return "No prompt or lora data found.", "", "", ""
-            
-            raw_loras_str = "\n".join([f"{l['name']} (Weight: {l['weight']})" for l in loras])
+                 return "No prompt or lora data found.", "", ""
             
             matched = match_loras_to_db(loras)
             
-            matched_loras_str = ""
+            table_html = "<table style='width: 100%; text-align: left; border-collapse: collapse; margin-top: 10px;'>"
+            table_html += "<tr><th style='border-bottom: 1px solid #ddd; padding: 8px;'>Saved</th>"
+            table_html += "<th style='border-bottom: 1px solid #ddd; padding: 8px;'>Lora Name</th>"
+            table_html += "<th style='border-bottom: 1px solid #ddd; padding: 8px;'>Lora Filename</th>"
+            table_html += "<th style='border-bottom: 1px solid #ddd; padding: 8px;'>Subfolder</th>"
+            table_html += "<th style='border-bottom: 1px solid #ddd; padding: 8px;'>Base Model</th>"
+            table_html += "<th style='border-bottom: 1px solid #ddd; padding: 8px;'>Hash</th>"
+            table_html += "<th style='border-bottom: 1px solid #ddd; padding: 8px;'>Download</th></tr>"
+            
             for m in matched:
-                if m["filename"]:
-                    trigger = m["trigger_words"] if m["trigger_words"] else "None"
-                    matched_loras_str += f"[DB MATCH] {m['filename']} (Weight: {m['weight']}) - Triggers: {trigger}\n"
+                saved = "✅" if m["filename"] else "❌"
+                name = m.get("original_name", "")
+                filename = m.get("filename", "") or ""
+                
+                # Extract subfolder relative to Lora dir if possible, else just basename dir
+                subfolder = ""
+                if m.get("filepath"):
+                    # Use directory name of the file
+                    subfolder = os.path.basename(os.path.dirname(m["filepath"]))
+                    
+                base_model = m.get("base_model", "") or ""
+                hash_val = m.get("autov2_hash", "") or ""
+                
+                download_link = ""
+                vid = m.get("civitai_version_id")
+                if vid:
+                    download_link = f"<a href='https://civitai.com/api/download/models/{vid}' target='_blank' style='color: #3b82f6; text-decoration: underline;'>Download</a>"
                 else:
-                    matched_loras_str += f"[NOT FOUND] {m['original_name']} (Weight: {m['weight']})\n"
+                    download_link = "Not Found"
+
+                table_html += f"<tr>"
+                table_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{saved}</td>"
+                table_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{name}</td>"
+                table_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{filename}</td>"
+                table_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{subfolder}</td>"
+                table_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{base_model}</td>"
+                table_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{hash_val[:10]}</td>"
+                table_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee;'>{download_link}</td>"
+                table_html += f"</tr>"
+                
+            table_html += "</table>"
                     
             new_prompt = reconstruct_prompt(data, matched)
             
-            return raw_prompt, raw_loras_str.strip(), new_prompt, matched_loras_str.strip()
+            return raw_prompt, new_prompt, table_html
 
         with gr.Tabs():
             with gr.TabItem("Image Analysis & Lora Matcher"):
@@ -105,18 +137,21 @@ def ui_tab():
                         gr.Markdown("### Image Analysis & Lora Matcher")
                         
                         with gr.Accordion("Extraction Results", open=True):
-                            raw_prompt = gr.Textbox(label="Extracted Raw Prompt", lines=3, interactive=False)
-                            raw_loras = gr.Textbox(label="Detected Loras (Raw)", lines=2, interactive=False)
+                            raw_prompt = gr.Textbox(label="Extracted Raw Metadata", lines=3, interactive=False)
                             
-                        with gr.Accordion("Matched Results", open=True):
+                        with gr.Accordion("Prompt Construction", open=True):
                             matched_prompt = gr.Textbox(label="Matched Prompt with Trigger Words", lines=4, interactive=False, show_copy_button=True)
-                            matched_loras = gr.Textbox(label="Matched Local Loras", lines=3, interactive=False)
                             
                     with gr.Column(scale=1):
                         # Use a fixed height for the image to avoid scrolling
                         image_upload = gr.Image(type="pil", label="Upload Image", elem_id="lora_meta_image_upload", height=600)
 
-                image_upload.change(fn=analyze_image, inputs=[image_upload], outputs=[raw_prompt, raw_loras, matched_prompt, matched_loras])
+                with gr.Row():
+                    gr.Markdown("### Parsed Loras")
+                with gr.Row():
+                    lora_table = gr.HTML(value="")
+
+                image_upload.change(fn=analyze_image, inputs=[image_upload], outputs=[raw_prompt, matched_prompt, lora_table])
 
             with gr.TabItem("Lora Database Manager"):
                 with gr.Column():

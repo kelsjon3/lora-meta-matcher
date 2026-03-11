@@ -76,11 +76,14 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
                 
             trigger_words = None
             base_model = None
+            civitai_version_id = None
             
             if "trainedWords" in data and isinstance(data["trainedWords"], list):
                 trigger_words = ", ".join(data["trainedWords"])
             if "baseModel" in data:
                 base_model = data["baseModel"]
+            if "id" in data and isinstance(data["id"], int):
+                civitai_version_id = data["id"]
                 
             # Upsert partial data to populate triggers
             upsert_lora(
@@ -88,7 +91,8 @@ def process_missing_civitai_metadata(token=None, delay=2.0):
                 filepath=filepath,
                 trigger_words=trigger_words,
                 base_model=base_model,
-                metadata_fetch_attempted=1
+                metadata_fetch_attempted=1,
+                civitai_version_id=civitai_version_id
             )
             yield msg_sum, f"Successfully updated metadata for '{filename}'."
         elif status_code == 404:

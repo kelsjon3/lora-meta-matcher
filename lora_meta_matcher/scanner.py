@@ -47,10 +47,16 @@ def parse_metadata_file(filepath):
             elif "autov2" in data:
                 autov2_hash = data["autov2"]
                 
+        # Civitai Version ID
+        civitai_version_id = None
+        if "id" in data and isinstance(data["id"], int):
+            civitai_version_id = data["id"]
+            
         return {
             "autov2_hash": autov2_hash,
             "trigger_words": trigger_words,
-            "base_model": base_model
+            "base_model": base_model,
+            "civitai_version_id": civitai_version_id
         }
     except Exception as e:
         print(f"Error parsing metadata file {filepath}: {e}")
@@ -88,10 +94,10 @@ def scan_directory(directory_path):
                 
         processed += 1
         
-        # Check if already processed
+        # Check if already processed and fully populated
         existing = get_lora_by_path(filepath)
-        if existing:
-            # Skip metadata extraction since it's already in the DB
+        if existing and existing.get("civitai_version_id"):
+            # Skip metadata extraction since it's already in the DB with full details
             msg = f"Skipping {filename} (Already in database)"
             yield f"Processed {processed} / {total_files} files ({int((processed/total_files)*100)}%)", msg
             continue
@@ -114,6 +120,7 @@ def scan_directory(directory_path):
                 autov2_hash=metadata.get("autov2_hash"),
                 trigger_words=metadata.get("trigger_words"),
                 base_model=metadata.get("base_model"),
+                civitai_version_id=metadata.get("civitai_version_id"),
                 metadata_fetch_attempted=1
             )
             msg = f"Found {filename} (Extracted metadata)"

@@ -36,10 +36,11 @@ def parse_a1111_metadata(info):
                 if isinstance(res, dict) and res.get("type") == "lora":
                     name = res.get("modelName") or res.get("modelVersionName")
                     weight = res.get("weight", "1.0")
+                    modelVersionId = res.get("modelVersionId")
                     if name:
                         # Ensure we don't duplicate Loras already found in prompt
                         if not any(l["name"] == name for l in loras):
-                            loras.append({"name": name, "weight": str(weight)})
+                            loras.append({"name": name, "weight": str(weight), "civitai_version_id": modelVersionId})
         except Exception:
             pass
         
@@ -200,9 +201,19 @@ def match_loras_to_db(loras):
         for lora in loras:
             name = lora["name"]
             weight = lora["weight"]
+            civitai_version_id = lora.get("civitai_version_id")
             
-            cursor.execute('SELECT * FROM loras WHERE filename LIKE ? OR filepath LIKE ?', (f"%{name}%.safetensors", f"%{name}%"))
-            results = cursor.fetchall()
+            results = []
+            
+            # 1. Try to match exact Civitai Version ID
+            if civitai_version_id:
+                cursor.execute('SELECT * FROM loras WHERE civitai_version_id=?', (civitai_version_id,))
+                results = cursor.fetchall()
+                
+            # 2. Fallback to generic name search
+            if not results:
+                cursor.execute('SELECT * FROM loras WHERE filename LIKE ? OR filepath LIKE ?', (f"%{name}%.safetensors", f"%{name}%"))
+                results = cursor.fetchall()
             
             if results:
                 row = dict(results[0])
@@ -210,6 +221,10 @@ def match_loras_to_db(loras):
                     "original_name": name,
                     "weight": weight,
                     "filename": row["filename"],
+                    "filepath": row["filepath"],
+                    "autov2_hash": row["autov2_hash"],
+                    "base_model": row["base_model"],
+                    "civitai_version_id": row.get("civitai_version_id") or civitai_version_id,
                     "trigger_words": row["trigger_words"]
                 })
             else:
@@ -217,6 +232,10 @@ def match_loras_to_db(loras):
                     "original_name": name,
                     "weight": weight,
                     "filename": None,
+                    "filepath": None,
+                    "autov2_hash": None,
+                    "base_model": None,
+                    "civitai_version_id": civitai_version_id,
                     "trigger_words": None
                 })
                 
@@ -237,10 +256,5 @@ def reconstruct_prompt(parsed_data, matched_loras):
             
             if lora["trigger_words"]:
                 additions.append(lora["trigger_words"])
-        else:
-            # Fallback to original name if not found in DB
-            clean_name = lora["original_name"].replace(" ", "")
-            tag = f"<lora:{clean_name}:{lora['weight']}>"
-            additions.append(tag)
             
     return ", ".join(additions)
