@@ -53,14 +53,20 @@ def parse_a1111_metadata(info):
         try:
             resources = json.loads(civitai_match.group(1))
             for res in resources:
-                if isinstance(res, dict) and res.get("type") == "lora":
-                    name = res.get("modelName") or res.get("modelVersionName")
-                    weight = res.get("weight", "1.0")
-                    modelVersionId = res.get("modelVersionId")
-                    if name:
-                        # Ensure we don't duplicate Loras already found in prompt
-                        if not any(l["name"] == name for l in loras):
-                            loras.append({"name": name, "weight": str(weight), "civitai_version_id": modelVersionId})
+                if isinstance(res, dict):
+                    res_type = str(res.get("type", ""))
+                    if res_type == "lora" or "Type = lora" in res_type:
+                        name = res.get("modelName") or res.get("modelVersionName")
+                        weight = res.get("weight", "1.0")
+                        modelVersionId = res.get("modelVersionId")
+                        
+                        if not name and modelVersionId:
+                            name = f"UnknownLora_{modelVersionId}"
+                            
+                        if name:
+                            # Ensure we don't duplicate Loras already found in prompt
+                            if not any(l["name"] == name for l in loras):
+                                loras.append({"name": name, "weight": str(weight), "civitai_version_id": modelVersionId})
         except Exception:
             pass
         
