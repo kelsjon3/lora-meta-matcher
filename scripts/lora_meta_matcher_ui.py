@@ -42,10 +42,19 @@ def ui_tab():
                 with gr.Row():
                     scan_btn = gr.Button("1. Scan Directory", variant="primary")
                     hash_btn = gr.Button("2. Calculate Missing Hashes (CPU Intensive)")
+                    halt_hash_btn = gr.Button("Halt Hashing", variant="stop")
                     api_btn = gr.Button("3. Fetch Missing Metadata from CivitAI (API limit)")
                 
                 summary_log = gr.Textbox(label="Progress Summary", lines=1, interactive=False)
                 output_log = gr.Textbox(label="Detailed Log", lines=10, interactive=False)
+                
+                class UIState:
+                    halt_hashing = False
+                st = UIState()
+                
+                def run_halt():
+                    st.halt_hashing = True
+                    return "Halt requested...", "Halting hash calculation gracefully..."
                 
                 def run_scan(directory):
                     log = ""
@@ -57,9 +66,10 @@ def ui_tab():
                         yield summary, log
                         
                 def run_hashing():
+                    st.halt_hashing = False
                     log = ""
-                    for summary, msg in process_missing_hashes():
-                        log = msg + "\n" + log
+                    for summary, msg in process_missing_hashes(halt_check=lambda: st.halt_hashing):
+                        log = msg + "\\n" + log
                         yield summary, log
                         
                 def run_api_fetch():
@@ -74,6 +84,7 @@ def ui_tab():
                         
                 scan_btn.click(fn=run_scan, inputs=[scan_dir_path], outputs=[summary_log, output_log])
                 hash_btn.click(fn=run_hashing, inputs=[], outputs=[summary_log, output_log])
+                halt_hash_btn.click(fn=run_halt, inputs=[], outputs=[summary_log, output_log])
                 api_btn.click(fn=run_api_fetch, inputs=[], outputs=[summary_log, output_log])
 
             with gr.Column(scale=1):
