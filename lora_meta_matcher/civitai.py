@@ -103,6 +103,7 @@ def process_missing_civitai_metadata(token=None, delay=2.0, halt_check=None):
         
         for try_hash in hashes_to_try:
             data, status_code = fetch_civitai_info(try_hash, token)
+            time.sleep(delay) # Rate limiting per API request
             
             if status_code == 200:
                 break
@@ -195,7 +196,5 @@ def process_missing_civitai_metadata(token=None, delay=2.0, halt_check=None):
             msg_log = f"[{status_code}] Error - '{filename}'"
             print(msg_log)
             yield msg_sum, msg_log
-            
-        time.sleep(delay) # Rate limiting
             
     yield f"API fetching complete. Processed {total_files} files.", f"Finished fetching CivitAI metadata for {total_files} Loras."
