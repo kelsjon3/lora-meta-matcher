@@ -1,4 +1,5 @@
 import os
+import json
 import gradio as gr
 from modules import script_callbacks, shared
 
@@ -10,6 +11,33 @@ from lora_meta_matcher.parser import extract_image_metadata, match_loras_to_db, 
 
 init_db()
 
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lora_meta_matcher_config.json")
+
+def get_persisted_scan_dir():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                return config.get("scan_dir", "")
+        except:
+            return ""
+    return ""
+
+def set_persisted_scan_dir(directory):
+    config = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except:
+            pass
+    config["scan_dir"] = directory
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4)
+    except Exception as e:
+        print(f"Failed to save lora_meta_matcher config: {e}")
+
 def on_ui_settings():
     section = ('lora_meta_matcher', "Lora Meta Matcher")
     shared.opts.add_option(
@@ -17,16 +45,6 @@ def on_ui_settings():
         shared.OptionInfo(
             "",
             "CivitAI API Token (for downloading trigger words)",
-            gr.Textbox,
-            {"interactive": True},
-            section=section
-        )
-    )
-    shared.opts.add_option(
-        "lora_meta_matcher_scan_dir",
-        shared.OptionInfo(
-            "",
-            "Default Lora Directory for Scanning",
             gr.Textbox,
             {"interactive": True},
             section=section
@@ -53,10 +71,8 @@ def ui_tab():
                 yield "Error", "Please enter a directory path."
                 return
                 
-            # Persist it to a1111 options file for next boot
-            if hasattr(shared.opts, "lora_meta_matcher_scan_dir"):
-                shared.opts.lora_meta_matcher_scan_dir = directory
-                shared.opts.save(shared.config_filename)
+            # Persist it to a local extension config file for next boot
+            set_persisted_scan_dir(directory)
                 
             for summary, msg in scan_directory(directory):
                 log = log + "\n" + msg if log else msg
@@ -263,7 +279,7 @@ def ui_tab():
             with gr.TabItem("Lora Database Manager"):
                 with gr.Column():
                     gr.Markdown("### Lora Database Manager")
-                    default_dir = getattr(shared.opts, "lora_meta_matcher_scan_dir", "")
+                    default_dir = get_persisted_scan_dir()
                     scan_dir_path = gr.Textbox(label="Directory to Scan", value=default_dir, placeholder="/path/to/loras", interactive=True, elem_id="lora_meta_matcher_scan_dir_path")
                     
                     with gr.Row():
