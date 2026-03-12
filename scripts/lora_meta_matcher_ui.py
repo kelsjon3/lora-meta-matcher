@@ -280,7 +280,7 @@ def ui_tab():
                 with gr.Column():
                     gr.Markdown("### Lora Database Manager")
                     default_dir = get_persisted_scan_dir()
-                    scan_dir_path = gr.Textbox(label="Directory to Scan", value=default_dir, placeholder="/path/to/loras", interactive=True, elem_id="lora_meta_matcher_scan_dir_path")
+                    scan_dir_path = gr.Textbox(label="Directory to Scan", value=default_dir, placeholder="/path/to/loras", interactive=True)
                     
                     with gr.Row():
                         scan_btn = gr.Button("1. Scan Directory", variant="primary")
