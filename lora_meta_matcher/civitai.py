@@ -115,21 +115,21 @@ def process_missing_civitai_metadata(token=None, delay=2.0, halt_check=None):
             break # Halt immediately
             
         if data:
-            # Save the .civitai.info file next to the original file
-            base_name = os.path.splitext(filepath)[0]
-            info_path = f"{base_name}.civitai.info"
-            
+            # Build .civitai.info path next to the lora file (works for relative or absolute filepath)
             orig_dir = os.path.dirname(filepath)
+            base_name = os.path.splitext(os.path.basename(filepath))[0]
+            info_path = os.path.join(orig_dir, f"{base_name}.civitai.info")
+
+            # Always try to save .civitai.info so future scans can load from it
             if os.path.exists(orig_dir):
                 try:
                     with open(info_path, 'w', encoding='utf-8') as f:
                         json.dump(data, f, indent=2)
                 except Exception as e:
-                    yield msg_sum, f"Error saving info file for {filepath}: {e}"
-                    continue
+                    yield msg_sum, f"Warning: Could not save .civitai.info for {filename}: {e} (DB will still be updated)"
             else:
-                yield msg_sum, f"Warning: Directory {orig_dir} not found. DB will be updated, but .info file skipped."
-                
+                yield msg_sum, f"Warning: Directory not found for {filename}. DB will be updated, .civitai.info not saved."
+
             trigger_words = None
             base_model = None
             civitai_version_id = None
@@ -137,13 +137,17 @@ def process_missing_civitai_metadata(token=None, delay=2.0, halt_check=None):
             api_autov2 = None
             api_autov3 = None
             api_sha256 = None
-            
+
             if "trainedWords" in data and isinstance(data["trainedWords"], list):
                 trigger_words = ", ".join(data["trainedWords"])
             if "baseModel" in data:
                 base_model = data["baseModel"]
-            if "id" in data and isinstance(data["id"], int):
-                civitai_version_id = data["id"]
+            if "id" in data:
+                raw_id = data["id"]
+                if isinstance(raw_id, int):
+                    civitai_version_id = raw_id
+                elif isinstance(raw_id, str) and raw_id.isdigit():
+                    civitai_version_id = int(raw_id)
                 
             if "model" in data and isinstance(data["model"], dict) and "name" in data["model"]:
                 m_name = data["model"]["name"]

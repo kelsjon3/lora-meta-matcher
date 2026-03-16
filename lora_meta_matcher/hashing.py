@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 from .db import get_loras_without_hash, upsert_lora
 
@@ -34,6 +35,43 @@ def get_short_hash(full_hash):
         return full_hash[:12]
     return full_hash
 
+
+def _write_or_update_civitai_info(filepath, full_sha256, short_autov2):
+    """
+    Write or update the .civitai.info file next to the lora with the computed hash.
+    If the file exists (e.g. from a previous API fetch), merge in the hashes without overwriting
+    trigger words, base model, etc. If it does not exist, write a minimal file the scanner can read.
+    """
+    orig_dir = os.path.dirname(filepath)
+    base_name = os.path.splitext(os.path.basename(filepath))[0]
+    info_path = os.path.join(orig_dir, f"{base_name}.civitai.info")
+    if not os.path.exists(orig_dir):
+        return False
+    try:
+        data = {}
+        if os.path.exists(info_path):
+            try:
+                with open(info_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+        # Ensure hashes are present in CivitAI-style format so scanner and API consumers can use them
+        if "files" in data and isinstance(data["files"], list) and len(data["files"]) > 0:
+            if "hashes" not in data["files"][0] or not isinstance(data["files"][0]["hashes"], dict):
+                data["files"][0]["hashes"] = {}
+            data["files"][0]["hashes"]["SHA256"] = full_sha256
+            data["files"][0]["hashes"]["AutoV2"] = short_autov2
+        else:
+            data["files"] = [{"hashes": {"SHA256": full_sha256, "AutoV2": short_autov2}}]
+        data["sha256"] = full_sha256
+        data["autov2"] = short_autov2
+        with open(info_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
 def process_missing_hashes(halt_check=None):
     """
     Generator that calculates missing hashes for loras in the db.
@@ -66,8 +104,17 @@ def process_missing_hashes(halt_check=None):
             break
             
         if autov2_hash:
-            upsert_lora(filename=filename, filepath=filepath, autov2_hash=autov2_hash)
-            success_msg = f"[OK] Generated Hash: {autov2_hash[:10]} - '{filename}'"
+            short_hash = get_short_hash(autov2_hash)
+            upsert_lora(
+                filename=filename,
+                filepath=filepath,
+                autov2_hash=autov2_hash,
+                sha256_hash=autov2_hash,
+            )
+            if _write_or_update_civitai_info(filepath, autov2_hash, short_hash):
+                success_msg = f"[OK] Hash + .civitai.info updated - '{filename}'"
+            else:
+                success_msg = f"[OK] Hash in DB (could not write .civitai.info) - '{filename}'"
             print(f"[Lora Meta Matcher] {success_msg}")
             yield msg_sum, success_msg
         else:

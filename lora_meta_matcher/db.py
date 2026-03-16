@@ -97,8 +97,37 @@ def get_lora_by_hash(autov2_hash):
 def get_loras_without_hash():
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT filepath FROM loras WHERE autov2_hash IS NULL OR autov2_hash = ""')
-        return [r[0] for r in cursor.fetchall()]
+        cursor.execute('''
+            SELECT filepath
+            FROM loras
+            WHERE (autov2_hash IS NULL OR autov2_hash = "")
+              AND (sha256_hash IS NULL OR sha256_hash = "")
+        ''')
+        missing = [r[0] for r in cursor.fetchall()]
+        cursor.execute('''
+            SELECT filepath
+            FROM loras
+            WHERE (autov2_hash IS NOT NULL AND autov2_hash != "")
+               OR (sha256_hash IS NOT NULL AND sha256_hash != "")
+        ''')
+        hashed = [r[0] for r in cursor.fetchall()]
+
+        def canonical_path(p):
+            try:
+                return os.path.realpath(os.path.normpath(p))
+            except OSError:
+                return os.path.normpath(p)
+
+        # De-duplicate alias paths (e.g. /home/... and /mnt/... pointing to same file)
+        hashed_canonical = {canonical_path(p) for p in hashed}
+
+        filtered = []
+        for p in missing:
+            cp = canonical_path(p)
+            if cp not in hashed_canonical:
+                filtered.append(p)
+
+        return filtered
 
 def get_loras_without_triggers_but_have_hash():
     with get_connection() as conn:
