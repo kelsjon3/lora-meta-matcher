@@ -1,2 +1,4 @@
 loras.db
 sample_images/
+__pycache__/
+*.pyc

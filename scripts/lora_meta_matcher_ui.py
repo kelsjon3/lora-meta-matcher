@@ -268,7 +268,7 @@ def ui_tab():
                         hash_btn = gr.Button("2. Calculate Missing Hashes (CPU Intensive)")
                         halt_hash_btn = gr.Button("Halt Hashing", variant="stop")
                     with gr.Row():
-                        api_btn = gr.Button("3. Fetch Missing Metadata from CivitAI (API limit)")
+                        api_btn = gr.Button("3. Fetch Missing Metadata from CivitAI")
                         halt_api_btn = gr.Button("Halt API Fetches", variant="stop")
                     
                     summary_log = gr.Textbox(label="Progress Summary", lines=1, interactive=False)

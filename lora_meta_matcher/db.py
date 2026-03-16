@@ -3,6 +3,15 @@ import os
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "loras.db")
 
+
+def _canonical_path(p):
+    if not p:
+        return p
+    try:
+        return os.path.realpath(os.path.normpath(p))
+    except OSError:
+        return os.path.normpath(p)
+
 def get_connection():
     return sqlite3.connect(DB_PATH)
 
@@ -41,6 +50,12 @@ def init_db():
             cursor.execute("ALTER TABLE loras ADD COLUMN loraname TEXT")
         except sqlite3.OperationalError:
             pass # Column already exists
+
+        # Track which hash set was used for the last API metadata attempt.
+        try:
+            cursor.execute("ALTER TABLE loras ADD COLUMN metadata_fetch_hash_signature TEXT")
+        except sqlite3.OperationalError:
+            pass
             
         # Add tracking for other hash types
         try:
@@ -58,12 +73,25 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sha256_hash ON loras(sha256_hash)')
         conn.commit()
 
-def upsert_lora(filename, filepath, autov2_hash=None, autov3_hash=None, sha256_hash=None, trigger_words=None, base_model=None, metadata_fetch_attempted=None, civitai_version_id=None, loraname=None):
+def upsert_lora(
+    filename,
+    filepath,
+    autov2_hash=None,
+    autov3_hash=None,
+    sha256_hash=None,
+    trigger_words=None,
+    base_model=None,
+    metadata_fetch_attempted=None,
+    civitai_version_id=None,
+    loraname=None,
+    metadata_fetch_hash_signature=None,
+):
+    filepath = _canonical_path(filepath)
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO loras (filename, filepath, autov2_hash, autov3_hash, sha256_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id, loraname, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO loras (filename, filepath, autov2_hash, autov3_hash, sha256_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id, loraname, metadata_fetch_hash_signature, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(filepath) DO UPDATE SET
                 filename=excluded.filename,
                 autov2_hash=COALESCE(excluded.autov2_hash, loras.autov2_hash),
@@ -74,11 +102,13 @@ def upsert_lora(filename, filepath, autov2_hash=None, autov3_hash=None, sha256_h
                 metadata_fetch_attempted=COALESCE(excluded.metadata_fetch_attempted, loras.metadata_fetch_attempted),
                 civitai_version_id=COALESCE(excluded.civitai_version_id, loras.civitai_version_id),
                 loraname=COALESCE(excluded.loraname, loras.loraname),
+                metadata_fetch_hash_signature=COALESCE(excluded.metadata_fetch_hash_signature, loras.metadata_fetch_hash_signature),
                 updated_at=CURRENT_TIMESTAMP
-        ''', (filename, filepath, autov2_hash, autov3_hash, sha256_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id, loraname))
+        ''', (filename, filepath, autov2_hash, autov3_hash, sha256_hash, trigger_words, base_model, metadata_fetch_attempted, civitai_version_id, loraname, metadata_fetch_hash_signature))
         conn.commit()
 
 def get_lora_by_path(filepath):
+    filepath = _canonical_path(filepath)
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -134,18 +164,32 @@ def get_loras_without_triggers_but_have_hash():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT filepath, autov2_hash, autov3_hash, sha256_hash 
+            SELECT filepath, autov2_hash, autov3_hash, sha256_hash
             FROM loras 
-            WHERE (trigger_words IS NULL OR trigger_words = "") 
+            WHERE (
+                (trigger_words IS NULL OR trigger_words = "") OR
+                (base_model IS NULL OR base_model = "") OR
+                civitai_version_id IS NULL OR
+                (loraname IS NULL OR loraname = "")
+            )
             AND (
                 (autov2_hash IS NOT NULL AND autov2_hash != "") OR 
                 (autov3_hash IS NOT NULL AND autov3_hash != "") OR 
                 (sha256_hash IS NOT NULL AND sha256_hash != "")
             ) 
             AND metadata_fetch_attempted = 0
+            ORDER BY updated_at ASC
         ''')
         results = cursor.fetchall()
-        return [dict(r) for r in results]
+        filtered = []
+        for row in results:
+            as_dict = dict(row)
+            filepath = as_dict.get("filepath")
+            # Avoid selecting stale DB rows from old mounts/aliases; API flow and sidecar writes
+            # should operate on files present in the current runtime path.
+            if filepath and os.path.isfile(filepath):
+                filtered.append(as_dict)
+        return filtered
 
 def get_stats():
     with get_connection() as conn:

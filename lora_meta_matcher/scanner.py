@@ -13,6 +13,20 @@ def _derive_autov2_from_sha256(sha256_hash):
         return normalized[:12]
     return None
 
+
+def _hash_signature_from_row(row):
+    """
+    Stable signature of currently-known hashes for API retry gating.
+    """
+    if not row:
+        return None
+    parts = [
+        _normalize_hash(row.get("autov2_hash")),
+        _normalize_hash(row.get("autov3_hash")),
+        _normalize_hash(row.get("sha256_hash")),
+    ]
+    return "|".join(p if p else "" for p in parts)
+
 def _is_fully_populated_lora(row):
     """
     Decide whether scanning can safely skip this row.
@@ -397,7 +411,8 @@ def scan_directory(directory_path):
                     base_model=metadata.get("base_model"),
                     civitai_version_id=metadata.get("civitai_version_id"),
                     loraname=metadata.get("loraname"),
-                    metadata_fetch_attempted=1,
+                    # Sidecar import is not an API attempt; keep this fetch-eligible if still incomplete.
+                    metadata_fetch_attempted=0,
                 )
                 updated_this_file = True
             refreshed = get_lora_by_path(filepath)
@@ -413,6 +428,21 @@ def scan_directory(directory_path):
 
         if updated_this_file:
             db_updated_files += 1
+
+        # Re-enable API fetch only when incomplete rows have changed hash identity, or if
+        # legacy rows never recorded a prior fetch signature.
+        refreshed_for_gate = get_lora_by_path(filepath)
+        if refreshed_for_gate and not _is_fully_populated_lora(refreshed_for_gate):
+            attempted = int(refreshed_for_gate.get("metadata_fetch_attempted") or 0)
+            current_sig = _hash_signature_from_row(refreshed_for_gate)
+            previous_sig = refreshed_for_gate.get("metadata_fetch_hash_signature")
+            should_requeue = attempted == 0 or (attempted == 1 and (not previous_sig or previous_sig != current_sig))
+            if should_requeue and attempted != 0:
+                upsert_lora(
+                    filename=filename,
+                    filepath=filepath,
+                    metadata_fetch_attempted=0,
+                )
 
         yield f"Processed {processed} / {total_files} files ({int((processed/total_files)*100)}%)", msg
 
