@@ -143,12 +143,19 @@ def parse_comfyui_metadata(info):
                     elif 'lora' in k_lower and 'name' in k_lower:
                         is_lora = True
                         
-                    if is_lora:
+                    if is_lora and 'ckpt' not in k_lower and 'checkpoint' not in k_lower:
                         lora_basename = v.replace(".safetensors", "").replace(".pt", "")
                         weight = inputs.get("strength_model", "1.0")
                         loras.append({"name": lora_basename, "weight": str(weight)})
                     elif k == "text" or k == "text_positive":
                         texts.append(v)
+                elif isinstance(v, dict):
+                    # Advanced nodes like Power Lora Loader use dictionaries for inputs
+                    lora_val = v.get("lora") or v.get("lora_name")
+                    if isinstance(lora_val, str) and (lora_val.endswith('.safetensors') or lora_val.endswith('.pt')):
+                        lora_basename = lora_val.replace(".safetensors", "").replace(".pt", "")
+                        weight = v.get("strength", v.get("strength_model", "1.0"))
+                        loras.append({"name": lora_basename, "weight": str(weight)})
 
     if texts:
         positive_prompt = " | ".join([t for t in texts if len(t) > 5])
