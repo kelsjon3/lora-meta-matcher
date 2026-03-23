@@ -120,6 +120,8 @@ def get_lora_by_hash(autov2_hash):
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        if autov2_hash and len(autov2_hash) > 10:
+            autov2_hash = autov2_hash[:10]
         cursor.execute('SELECT * FROM loras WHERE autov2_hash=? OR autov2_hash LIKE ?', (autov2_hash, f"{autov2_hash}%"))
         results = cursor.fetchall()
         return [dict(r) for r in results]

@@ -9,8 +9,8 @@ def _normalize_hash(value):
 
 def _derive_autov2_from_sha256(sha256_hash):
     normalized = _normalize_hash(sha256_hash)
-    if normalized and len(normalized) >= 12:
-        return normalized[:12]
+    if normalized and len(normalized) >= 10:
+        return normalized[:10]
     return None
 
 
@@ -196,15 +196,12 @@ def _gather_json_fallback_candidates(root, base_name):
     Build an ordered list of JSON metadata candidates for a safetensors file.
     Priority:
       1) exact sidecar files next to the model
-      2) metadata.json in the same folder
-      3) any other .json file in the same folder (deterministic order)
     """
     exact_candidates = [
         os.path.join(root, f"{base_name}.civitai.info"),
         os.path.join(root, f"{base_name}.civitai_info"),
         os.path.join(root, f"{base_name}.metadata.json"),
         os.path.join(root, f"{base_name}.json"),
-        os.path.join(root, "metadata.json"),
     ]
 
     candidates = []
@@ -213,20 +210,6 @@ def _gather_json_fallback_candidates(root, base_name):
         if candidate not in seen:
             candidates.append(candidate)
             seen.add(candidate)
-
-    try:
-        json_files = sorted(
-            f for f in os.listdir(root)
-            if f.lower().endswith(".json") and f.lower() != "metadata.json"
-        )
-        for name in json_files:
-            path = os.path.join(root, name)
-            if path not in seen:
-                candidates.append(path)
-                seen.add(path)
-    except OSError:
-        # Folder may be inaccessible or gone; fallback list still has exact candidates.
-        pass
 
     return candidates
 

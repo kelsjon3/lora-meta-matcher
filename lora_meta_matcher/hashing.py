@@ -30,9 +30,9 @@ def get_autov2_hash(filepath, halt_check=None):
     return calculate_sha256(filepath, halt_check)
 
 def get_short_hash(full_hash):
-    """Returns the 12-character AutoV2 hash used by A1111/Forge."""
-    if full_hash and len(full_hash) >= 12:
-        return full_hash[:12]
+    """Returns the 10-character AutoV2 hash to match CivitAI format."""
+    if full_hash and len(full_hash) >= 10:
+        return full_hash[:10]
     return full_hash
 
 

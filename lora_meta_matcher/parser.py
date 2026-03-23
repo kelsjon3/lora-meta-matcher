@@ -23,15 +23,26 @@ def parse_a1111_metadata(info):
         positive_prompt = params.strip()
         
     # 1. Standard A1111 prompt Lora tags <lora:name:weight>
-    lora_matches = re.findall(r'<lora:([^:]+):([^>]+)>', positive_prompt)
+    lora_matches = re.findall(r'<lora:([^:]+):([^>]+)>', params)
+    seen = set()
     for name, weight in lora_matches:
-        loras.append({"name": name, "weight": weight})
+        if name not in seen:
+            loras.append({"name": name, "weight": weight})
+            seen.add(name)
         
     # Extract embedded hashes manually
     extracted_hashes = {}
     lora_hashes_match = re.search(r'Lora hashes:\s*"([^"]+)"', params)
+    hashes_str = ""
     if lora_hashes_match:
-        pairs = [p.strip() for p in lora_hashes_match.group(1).split(",")]
+        hashes_str = lora_hashes_match.group(1)
+    else:
+        alt_match = re.search(r'Lora hashes:\s*(.*?)(?:, [A-Z][A-Za-z ]*:|$)', params)
+        if alt_match:
+            hashes_str = alt_match.group(1).strip()
+            
+    if hashes_str:
+        pairs = [p.strip() for p in hashes_str.split(",")]
         for p in pairs:
             if ":" in p:
                 k, v = p.split(":", 1)
@@ -257,6 +268,9 @@ def match_loras_to_db(loras):
                 
             # 2. Try to match extracted hash against any specific hash column with a fallback
             parsed_hash = lora.get("autov2_hash")
+            if parsed_hash and len(parsed_hash) > 10:
+                parsed_hash = parsed_hash[:10]
+                
             if not results and parsed_hash:
                 cursor.execute('''
                     SELECT * FROM loras WHERE 
