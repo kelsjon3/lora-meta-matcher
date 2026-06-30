@@ -312,7 +312,7 @@ def match_loras_to_db(loras):
                     "weight": weight,
                     "filename": None,
                     "filepath": None,
-                    "autov2_hash": None,
+                    "autov2_hash": autov2_hash,
                     "autov3_hash": None,
                     "sha256_hash": None,
                     "base_model": None,

@@ -5,7 +5,7 @@ from modules import script_callbacks, shared
 from lora_meta_matcher.db import init_db, get_lora_by_hash, upsert_lora
 from lora_meta_matcher.scanner import scan_directory
 from lora_meta_matcher.hashing import process_missing_hashes
-from lora_meta_matcher.civitai import process_missing_civitai_metadata, fetch_civitai_version_info
+from lora_meta_matcher.civitai import process_missing_civitai_metadata, fetch_civitai_version_info, fetch_civitai_info
 from lora_meta_matcher.parser import extract_image_metadata, match_loras_to_db, reconstruct_prompt
 
 init_db()
@@ -153,6 +153,68 @@ def ui_tab():
                                     )
                     except Exception as e:
                         print(f"Failed to dynamically fetch ID {vid}: {e}")
+
+                elif missing_info and not m.get("civitai_version_id"):
+                    # No version ID in the metadata — fall back to a hash-based CivitAI lookup.
+                    # The hash was extracted from the image (e.g. from "Lora hashes" or "Hashes" fields)
+                    # and is now preserved in the matched result even when no DB row was found.
+                    lookup_hash = m.get("autov2_hash") or m.get("autov3_hash") or m.get("sha256_hash")
+                    if lookup_hash:
+                        try:
+                            data_res, status = fetch_civitai_info(lookup_hash, token)
+                            if data_res and status == 200:
+                                if "baseModel" in data_res:
+                                    m["base_model"] = data_res["baseModel"]
+
+                                m_name = data_res.get("model", {}).get("name")
+                                v_name = data_res.get("name")
+                                if m_name:
+                                    m["loraname"] = f"{m_name} ({v_name})" if v_name else m_name
+
+                                api_autov2 = None
+                                api_autov3 = None
+                                api_sha256 = None
+                                if "files" in data_res and isinstance(data_res["files"], list):
+                                    for file_info in data_res["files"]:
+                                        if "hashes" in file_info and isinstance(file_info["hashes"], dict):
+                                            hashes = file_info["hashes"]
+                                            api_autov2 = hashes.get("AutoV2")
+                                            api_autov3 = hashes.get("AutoV3")
+                                            api_sha256 = hashes.get("SHA256")
+                                        if api_autov2 or api_sha256:
+                                            break
+
+                                # Populate version ID so the download link can be constructed
+                                vid = data_res.get("id")
+                                if vid:
+                                    m["civitai_version_id"] = vid
+
+                                fetched_hash = api_autov2 or api_autov3 or api_sha256
+                                if fetched_hash:
+                                    m["autov2_hash"] = api_autov2
+                                    m["autov3_hash"] = api_autov3
+                                    m["sha256_hash"] = api_sha256
+
+                                # Check if the user already has this file locally under a different name
+                                if fetched_hash and not m.get("filename"):
+                                    loc_matches = get_lora_by_hash(fetched_hash)
+                                    if loc_matches:
+                                        loc = loc_matches[0]
+                                        m["filename"] = loc["filename"]
+                                        m["filepath"] = loc["filepath"]
+                                        m["trigger_words"] = loc["trigger_words"]
+                                        if vid:
+                                            upsert_lora(
+                                                filename=loc["filename"],
+                                                filepath=loc["filepath"],
+                                                civitai_version_id=vid,
+                                                loraname=m.get("loraname"),
+                                                autov2_hash=api_autov2 if api_autov2 else None,
+                                                autov3_hash=api_autov3 if api_autov3 else None,
+                                                sha256_hash=api_sha256 if api_sha256 else None
+                                            )
+                        except Exception as e:
+                            print(f"Failed hash-based CivitAI lookup for {lookup_hash}: {e}")
             
             table_html = "<table style='width: 100%; text-align: left; border-collapse: collapse; margin-top: 10px;'>"
             table_html += "<tr><th style='border-bottom: 1px solid #ddd; padding: 8px;'>Saved</th>"
