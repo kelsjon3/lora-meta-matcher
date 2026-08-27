@@ -6,8 +6,6 @@ import logging
 import gradio as gr
 from modules import script_callbacks, shared
 
-logger = logging.getLogger(__name__)
-
 from lora_meta_matcher.db import init_db, get_lora_by_hash, upsert_lora
 from lora_meta_matcher.scanner import scan_directory
 from lora_meta_matcher.hashing import process_missing_hashes, calculate_sha256, get_autov2_hash
@@ -169,22 +167,22 @@ def ui_tab():
                 
             if not directory:
                 msg = "Error: Please enter a directory path here or in Settings."
-                logger.error(f"[Lora Meta Matcher] {msg}")
+                print(f"[Lora Meta Matcher ERROR] {msg}", flush=True)
                 yield "Error", msg, get_api_logs()
                 return
                 
-            logger.info(f"[Lora Meta Matcher] Starting directory scan: {directory}")
+            print(f"[Lora Meta Matcher] Starting directory scan: {directory}", flush=True)
             for summary, msg in scan_directory(directory):
-                logger.info(f"[Lora Meta Matcher] {msg}")
+                print(f"[Lora Meta Matcher] {msg}", flush=True)
                 log = log + "\n" + msg if log else msg
                 yield summary, log, get_api_logs()
                 
         def run_hashing():
             st.halt_hashing = False
             log = ""
-            logger.info("[Lora Meta Matcher] Starting missing hashes calculation...")
+            print("[Lora Meta Matcher] Starting missing hashes calculation...", flush=True)
             for summary, msg in process_missing_hashes(halt_check=lambda: st.halt_hashing):
-                logger.info(f"[Lora Meta Matcher] {msg}")
+                print(f"[Lora Meta Matcher] {msg}", flush=True)
                 log = log + "\n" + msg if log else msg
                 yield summary, log, get_api_logs()
                 
@@ -194,11 +192,11 @@ def ui_tab():
             token = getattr(shared.opts, "civitai_api_token", "")
             if not token:
                 log = "Warning: No CivitAI API token found in Settings. Trying without token...\n"
-                logger.warning(f"[Lora Meta Matcher] {log.strip()}")
+                print(f"[Lora Meta Matcher WARNING] {log.strip()}", flush=True)
                 
-            logger.info("[Lora Meta Matcher] Starting missing metadata fetch from CivitAI...")
+            print("[Lora Meta Matcher] Starting missing metadata fetch from CivitAI...", flush=True)
             for summary, msg in process_missing_civitai_metadata(token=token, halt_check=lambda: st.halt_api):
-                logger.info(f"[Lora Meta Matcher] {msg}")
+                print(f"[Lora Meta Matcher] {msg}", flush=True)
                 log = log + "\n" + msg if log else msg
                 yield summary, log, get_api_logs()
                 
