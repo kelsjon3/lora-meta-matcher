@@ -23,12 +23,17 @@ def parse_a1111_metadata(info):
         positive_prompt = params.strip()
         
     # 1. Standard A1111 prompt Lora tags <lora:name:weight>
-    lora_matches = re.findall(r'<lora:([^:]+):([^>]+)>', params)
+    lora_matches = re.findall(r'<lora:([^:>]+)(?::([^>]*))?>', params)
     seen = set()
     for name, weight in lora_matches:
-        if name not in seen:
+        name = name.strip()
+        weight = weight.strip() if weight else "1.0"
+        if not weight:
+            weight = "1.0"
+        name_lower = name.lower()
+        if name_lower not in seen:
             loras.append({"name": name, "weight": weight})
-            seen.add(name)
+            seen.add(name_lower)
         
     # Extract embedded hashes manually
     extracted_hashes = {}
@@ -59,27 +64,61 @@ def parse_a1111_metadata(info):
             pass
         
     # 2. Civitai Resources JSON extraction
-    civitai_match = re.search(r'Civitai resources:\s*(\[.*\])', params, flags=re.DOTALL)
+    civitai_match = re.search(r'Civitai resources:\s*(\[.*?\])(?=\s*(?:,\s*[A-Z][A-Za-z0-9_ ]*:|$))', params, flags=re.DOTALL)
+    resources_to_check = []
+    
     if civitai_match:
         try:
-            resources = json.loads(civitai_match.group(1))
-            for res in resources:
-                if isinstance(res, dict):
-                    res_type = str(res.get("type", ""))
-                    if res_type == "lora" or "Type = lora" in res_type:
-                        name = res.get("modelName") or res.get("modelVersionName")
-                        weight = res.get("weight", "1.0")
-                        modelVersionId = res.get("modelVersionId")
-                        
-                        if not name and modelVersionId:
-                            name = f"UnknownLora_{modelVersionId}"
-                            
-                        if name:
-                            # Ensure we don't duplicate Loras already found in prompt
-                            if not any(l["name"] == name for l in loras):
-                                loras.append({"name": name, "weight": str(weight), "civitai_version_id": modelVersionId})
+            resources_to_check.extend(json.loads(civitai_match.group(1)))
         except Exception:
             pass
+
+    # 2.5 Also check Civitai metadata resources
+    meta_match = re.search(r'Civitai metadata:\s*(\{.*?\})(?=\s*(?:,\s*[A-Z][A-Za-z0-9_ ]*:|$))', params, flags=re.DOTALL)
+    if meta_match:
+        try:
+            meta = json.loads(meta_match.group(1))
+            if isinstance(meta, dict) and "resources" in meta and isinstance(meta["resources"], list):
+                resources_to_check.extend(meta["resources"])
+        except Exception:
+            pass
+            
+    # Deduplicate checking (Civitai resources usually have modelName, Civitai metadata might only have ID)
+    seen_ids = set()
+    for res in resources_to_check:
+        if isinstance(res, dict):
+            res_type = str(res.get("type", "")).lower()
+            if res_type == "lora" or "type = lora" in res_type:
+                modelVersionId = res.get("modelVersionId")
+                
+                # Deduplicate based on modelVersionId to avoid processing the same lora from both arrays
+                if modelVersionId and modelVersionId in seen_ids:
+                    continue
+                if modelVersionId:
+                    seen_ids.add(modelVersionId)
+
+                name = res.get("modelName") or res.get("modelVersionName")
+                weight = res.get("weight")
+                if weight is None:
+                    weight = res.get("strength", "1.0")
+                    
+                if not name and modelVersionId:
+                    name = f"UnknownLora_{modelVersionId}"
+                    
+                if name:
+                    # Ensure we don't duplicate Loras already found in prompt, handling subfolders
+                    matched_lora = None
+                    for l in loras:
+                        if l["name"] == name or l["name"].endswith("/" + name) or l["name"].endswith("\\" + name):
+                            matched_lora = l
+                            break
+                    
+                    if matched_lora:
+                        if "civitai_version_id" not in matched_lora:
+                            matched_lora["civitai_version_id"] = modelVersionId
+                    else:
+                        loras.append({"name": name, "weight": str(weight), "civitai_version_id": modelVersionId})
+
         
     # 3. Attach any extracted hashes to the loras list
     for l in loras:
@@ -143,7 +182,12 @@ def parse_comfyui_metadata(info):
                     elif 'lora' in k_lower and 'name' in k_lower:
                         is_lora = True
                         
-                    if is_lora and 'ckpt' not in k_lower and 'checkpoint' not in k_lower:
+                    if is_lora:
+                        exclusions = ['ckpt', 'checkpoint', 'vae', 'clip', 'model', 'unet', 'controlnet', 'control_net', 'detector', 'upscale', 'upscaler', 'image']
+                        if any(exc in k_lower for exc in exclusions):
+                            is_lora = False
+                            
+                    if is_lora:
                         lora_basename = v.replace(".safetensors", "").replace(".pt", "")
                         weight = inputs.get("strength_model", "1.0")
                         loras.append({"name": lora_basename, "weight": str(weight)})
@@ -159,6 +203,37 @@ def parse_comfyui_metadata(info):
 
     if texts:
         positive_prompt = " | ".join([t for t in texts if len(t) > 5])
+
+    # Scan all text/string inputs and values for <lora:...> tags
+    seen_names = {l["name"].lower() for l in loras}
+    for node in nodes_list:
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs", node.get("widgets_values", {}))
+        if isinstance(inputs, dict):
+            for k, v in inputs.items():
+                if isinstance(v, str):
+                    for name, weight in re.findall(r'<lora:([^:>]+)(?::([^>]*))?>', v):
+                        name = name.strip()
+                        weight = weight.strip() if weight else "1.0"
+                        if not weight:
+                            weight = "1.0"
+                        name_lower = name.lower()
+                        if name_lower not in seen_names:
+                            loras.append({"name": name, "weight": weight})
+                            seen_names.add(name_lower)
+        elif isinstance(inputs, list):
+            for item in inputs:
+                if isinstance(item, str):
+                    for name, weight in re.findall(r'<lora:([^:>]+)(?::([^>]*))?>', item):
+                        name = name.strip()
+                        weight = weight.strip() if weight else "1.0"
+                        if not weight:
+                            weight = "1.0"
+                        name_lower = name.lower()
+                        if name_lower not in seen_names:
+                            loras.append({"name": name, "weight": weight})
+                            seen_names.add(name_lower)
 
     return {
         "raw_prompt": prompt_str, # return the entire raw json string
@@ -312,9 +387,9 @@ def match_loras_to_db(loras):
                     "weight": weight,
                     "filename": None,
                     "filepath": None,
-                    "autov2_hash": autov2_hash,
-                    "autov3_hash": None,
-                    "sha256_hash": None,
+                    "autov2_hash": autov2_hash or lora.get("autov2_hash"),
+                    "autov3_hash": lora.get("autov3_hash"),
+                    "sha256_hash": lora.get("sha256_hash"),
                     "base_model": None,
                     "civitai_version_id": civitai_version_id,
                     "trigger_words": None,

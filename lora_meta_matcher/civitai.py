@@ -3,6 +3,7 @@ import os
 import random
 import threading
 import time
+import datetime
 
 import requests
 
@@ -21,6 +22,21 @@ _REQUEST_SESSION = requests.Session()
 _RATE_LIMIT_LOCK = threading.Lock()
 _NEXT_REQUEST_AT = 0.0
 _COOLDOWN_UNTIL = 0.0
+
+API_LOG_HISTORY = []
+MAX_API_LOGS = 100
+
+def _log_api_tx(url, result_status, reason=""):
+    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    msg = f"[{timestamp}] {result_status} - {url}"
+    if reason:
+        msg += f" ({reason})"
+    API_LOG_HISTORY.append(msg)
+    if len(API_LOG_HISTORY) > MAX_API_LOGS:
+        API_LOG_HISTORY.pop(0)
+
+def get_api_logs():
+    return "\n".join(API_LOG_HISTORY) if API_LOG_HISTORY else "No API transactions recorded."
 
 
 def _normalize_hash(value):
@@ -69,7 +85,10 @@ def _reserve_request_slot(min_delay, halt_check=None):
     global _NEXT_REQUEST_AT
     global _COOLDOWN_UNTIL
 
-    effective_delay = max(float(min_delay or 0.0), MIN_REQUEST_DELAY_SECONDS)
+    if min_delay is not None:
+        effective_delay = float(min_delay)
+    else:
+        effective_delay = MIN_REQUEST_DELAY_SECONDS
 
     while True:
         if halt_check and halt_check():
@@ -320,11 +339,14 @@ def _request_json(url, token=None, delay=MIN_REQUEST_DELAY_SECONDS, halt_check=N
     last_status = 0
     for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
         if halt_check and halt_check():
+            _log_api_tx(url, "HALTED", "user requested halt")
             return None, 0, "halted"
         if _reserve_request_slot(delay, halt_check=halt_check):
+            _log_api_tx(url, "HALTED", "user requested halt during delay")
             return None, 0, "halted"
 
         try:
+            _log_api_tx(url, "REQ", f"att {attempt}")
             response = _REQUEST_SESSION.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             last_status = response.status_code
 
@@ -332,38 +354,47 @@ def _request_json(url, token=None, delay=MIN_REQUEST_DELAY_SECONDS, halt_check=N
                 try:
                     payload = response.json()
                 except ValueError:
+                    _log_api_tx(url, last_status, "invalid_json")
                     return None, 200, "invalid_json"
+                _log_api_tx(url, last_status, "ok")
                 return payload, 200, "ok"
 
             if response.status_code == 429:
                 retry_after = _parse_retry_after_seconds(response.headers.get("Retry-After"))
                 cooldown = retry_after if retry_after is not None else min(60, 10 * attempt)
                 _set_global_cooldown(cooldown)
+                _log_api_tx(url, last_status, f"cooldown_{cooldown}s")
                 return None, 429, f"rate_limited_cooldown_{cooldown}s"
 
             if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRY_ATTEMPTS:
                 backoff = min(MAX_RETRY_BACKOFF_SECONDS, (2 ** (attempt - 1)) + random.uniform(0.0, JITTER_SECONDS))
+                _log_api_tx(url, last_status, f"retry_{backoff:.1f}s")
                 if _sleep_interruptible(backoff, halt_check):
                     return None, 0, "halted"
                 continue
-
+            
+            _log_api_tx(url, last_status, "http_error")
             return None, response.status_code, "http_error"
-        except requests.RequestException:
+        except requests.RequestException as e:
             if attempt >= MAX_RETRY_ATTEMPTS:
+                _log_api_tx(url, "ERR", f"exception maxed: {str(e)[:20]}")
                 break
             backoff = min(MAX_RETRY_BACKOFF_SECONDS, (2 ** (attempt - 1)) + random.uniform(0.0, JITTER_SECONDS))
+            _log_api_tx(url, "ERR", f"retry_{backoff:.1f}s: {str(e)[:20]}")
             if _sleep_interruptible(backoff, halt_check):
                 return None, 0, "halted"
 
+    _log_api_tx(url, "FAIL", "retry_exhausted")
     return None, last_status, "retry_exhausted"
 
 
-def fetch_civitai_version_info(version_id, token=None):
+def fetch_civitai_version_info(version_id, token=None, delay=None):
     """
     Fetch model version info by CivitAI version id with shared throttling/retry logic.
     """
     url = f"{CIVITAI_API_VERSION_URL}{version_id}"
-    data, status, reason = _request_json(url, token=token, delay=MIN_REQUEST_DELAY_SECONDS)
+    req_delay = delay if delay is not None else MIN_REQUEST_DELAY_SECONDS
+    data, status, reason = _request_json(url, token=token, delay=req_delay)
     if status == 429:
         print(f"Rate limited by CivitAI while fetching version {version_id}. Reason: {reason}")
     elif status not in (0, 200, 404):
@@ -371,17 +402,39 @@ def fetch_civitai_version_info(version_id, token=None):
     return data, status
 
 
-def fetch_civitai_info(hash_value, token=None):
+def fetch_civitai_info(hash_value, token=None, delay=None):
     """
     Fetch model version info by hash with shared throttling/retry logic.
     """
     url = f"{CIVITAI_API_URL}{hash_value}"
-    data, status, reason = _request_json(url, token=token, delay=MIN_REQUEST_DELAY_SECONDS)
+    req_delay = delay if delay is not None else MIN_REQUEST_DELAY_SECONDS
+    data, status, reason = _request_json(url, token=token, delay=req_delay)
     if status == 429:
         print(f"Rate limited by CivitAI while fetching hash {hash_value}. Reason: {reason}")
     elif status not in (0, 200, 404):
         print(f"Failed to fetch hash {hash_value}. Status: {status} Reason: {reason}")
     return data, status
+
+
+def search_civitai_model_by_name(model_name, token=None, delay=None):
+    """
+    Search for models on CivitAI by query/name.
+    Returns (list_of_model_data, status)
+    """
+    import urllib.parse
+    encoded_name = urllib.parse.quote(model_name)
+    url = f"https://civitai.com/api/v1/models?query={encoded_name}&types=LORA&nsfw=true&limit=5"
+    req_delay = delay if delay is not None else MIN_REQUEST_DELAY_SECONDS
+    data, status, reason = _request_json(url, token=token, delay=req_delay)
+    if status == 429:
+        print(f"Rate limited by CivitAI while searching model '{model_name}'. Reason: {reason}")
+    elif status not in (0, 200, 404):
+        print(f"Failed to search model '{model_name}'. Status: {status} Reason: {reason}")
+        
+    if status == 200 and data and isinstance(data.get("items"), list):
+        return data["items"], 200
+    return None, status
+
 
 
 def process_missing_civitai_metadata(token=None, delay=MIN_REQUEST_DELAY_SECONDS, halt_check=None):
