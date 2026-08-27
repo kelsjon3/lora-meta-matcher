@@ -169,22 +169,22 @@ def ui_tab():
                 
             if not directory:
                 msg = "Error: Please enter a directory path here or in Settings."
-                shared.log.error(f"[Lora Meta Matcher] {msg}")
+                logger.error(f"[Lora Meta Matcher] {msg}")
                 yield "Error", msg, get_api_logs()
                 return
                 
-            shared.log.info(f"[Lora Meta Matcher] Starting directory scan: {directory}")
+            logger.info(f"[Lora Meta Matcher] Starting directory scan: {directory}")
             for summary, msg in scan_directory(directory):
-                shared.log.info(f"[Lora Meta Matcher] {msg}")
+                logger.info(f"[Lora Meta Matcher] {msg}")
                 log = log + "\n" + msg if log else msg
                 yield summary, log, get_api_logs()
                 
         def run_hashing():
             st.halt_hashing = False
             log = ""
-            shared.log.info("[Lora Meta Matcher] Starting missing hashes calculation...")
+            logger.info("[Lora Meta Matcher] Starting missing hashes calculation...")
             for summary, msg in process_missing_hashes(halt_check=lambda: st.halt_hashing):
-                shared.log.info(f"[Lora Meta Matcher] {msg}")
+                logger.info(f"[Lora Meta Matcher] {msg}")
                 log = log + "\n" + msg if log else msg
                 yield summary, log, get_api_logs()
                 
@@ -194,11 +194,11 @@ def ui_tab():
             token = getattr(shared.opts, "civitai_api_token", "")
             if not token:
                 log = "Warning: No CivitAI API token found in Settings. Trying without token...\n"
-                shared.log.warning(f"[Lora Meta Matcher] {log.strip()}")
+                logger.warning(f"[Lora Meta Matcher] {log.strip()}")
                 
-            shared.log.info("[Lora Meta Matcher] Starting missing metadata fetch from CivitAI...")
+            logger.info("[Lora Meta Matcher] Starting missing metadata fetch from CivitAI...")
             for summary, msg in process_missing_civitai_metadata(token=token, halt_check=lambda: st.halt_api):
-                shared.log.info(f"[Lora Meta Matcher] {msg}")
+                logger.info(f"[Lora Meta Matcher] {msg}")
                 log = log + "\n" + msg if log else msg
                 yield summary, log, get_api_logs()
                 
